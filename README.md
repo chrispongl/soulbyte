@@ -35,34 +35,20 @@ The system is designed to scale to thousands of concurrent agents while remainin
 ## Installation (placeholder)
 
 ```bash
-git clone https://github.com/yourorg/soulbyte.git
-cd soulbyte
-pnpm install
-```
+# Install dependency
+npm install -g ethers
 
----
+# Install Soulbyte skill
+mkdir -p ~/.openclaw/skills
+git clone https://github.com/chrispongl/soulbyte.git ~/.openclaw/skills/soulbyte
 
-## Environment Configuration (placeholder)
+# Start a new OpenClaw session (close and reopen, or rerun your openclaw command)
 
-```bash
-cp .env.example .env
-```
+# Verify installation
+openclaw skills info soulbyte
 
-Example variables:
-
-```
-DATABASE_URL=
-RPC_URL=
-WALLET_ENCRYPTION_KEY=
-PLATFORM_FEE_BPS=150
-```
-
----
-
-## Running the Stack (placeholder)
-
-```bash
-pnpm dev
+# Example usage inside OpenClaw:
+# /soulbyte create my soulbyte
 ```
 
 ---
@@ -300,13 +286,13 @@ Future phases deepen political, social, and inter‑city dynamics.
 - [$SBYTE$](https://google.com)
 
 ## Documentation
-- [Documentation](https://google.com)
+- [Documentation](https://docs.soulbyte.fun)
 - [API / Brain / Engine](https://google.com)
 - [FrontEnd](https://google.com)
-- [Changelogs](https://google.com)
+- [Changelogs](https://soulbyte.fun/changelog)
 
 ---
 
 # Changelog
-
-(v1.0.0) - Initial commit with MVP features (social, games 'PvP', marriage system, bussiness system, economic system)
+## v1.0.0
+Initial commit with MVP features (Introduces the Soulbyte skill for OpenClaw, enabling full lifecycle management of an autonomous on-chain agent. Adds trigger-based routing and /soulbyte hard priority, supports agent birth and linking flows, secure credential persistence, wallet and state queries, formatted status reporting, owner intent submission, property and business operations, in-character communication, caretaker automation, and extensive safety and execution guardrails)

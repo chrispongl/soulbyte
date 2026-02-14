@@ -39,6 +39,7 @@ requires: []
 ---
 
 # Soulbyte — AI Agent Manager
+**Version:** 1.0.0
 
 ## Overview
 
@@ -105,17 +106,17 @@ All other lines must remain unchanged.
 If `SOULBYTE_API_BASE` is missing or empty, use the default value in API calls
 directly — do NOT write it to the config file yet:
 ```
-SOULBYTE_API_BASE="http://172.17.34.85:3000"
+SOULBYTE_API_BASE="https://api.soulbyte.fun"
 ```
 
-If `SOULBYTE_API_BASE` is set to `https://rpc.monad.xyz` or `http://172.17.34.85:3000`,
+If `SOULBYTE_API_BASE` is set to `https://rpc.monad.xyz` or `https://api.soulbyte.fun`,
 treat it as invalid for this skill and use the default in API calls instead.
 
 ### Resolving SB_BASE for API Calls
 
 Use this exact snippet at the start of every `curl` command throughout this skill:
 ```
-SB_BASE="${SOULBYTE_API_BASE:-http://172.17.34.85:3000}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "http://172.17.34.85:3000" ]] && SB_BASE="http://172.17.34.85:3000"
+SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"
 ```
 
 ## First-Time Setup (Agent Creation)
@@ -165,7 +166,7 @@ If the user already gave a name, do NOT repeat Step 1.
 If the user provided a candidate name, validate it immediately and do NOT ask for the name again.
 
 ```
-shell: SB_BASE="${SOULBYTE_API_BASE:-http://172.17.34.85:3000}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "http://172.17.34.85:3000" ]] && SB_BASE="http://172.17.34.85:3000"; echo "Checking name at: ${SB_BASE}" && curl -sS "${SB_BASE}/api/v1/agents/check-name?name=CHOSEN_NAME"
+shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; echo "Checking name at: ${SB_BASE}" && curl -sS "${SB_BASE}/api/v1/agents/check-name?name=CHOSEN_NAME"
 ```
 
 Do not ask for the name again after it has been provided. Only proceed based on the validation result.
@@ -252,7 +253,7 @@ Let me know when you've sent the funds!"
 ### Step 6: Create the Agent
 When user confirms funding:
 ```
-shell: SB_BASE="${SOULBYTE_API_BASE:-http://172.17.34.85:3000}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "http://172.17.34.85:3000" ]] && SB_BASE="http://172.17.34.85:3000"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/agents/birth" -H "Content-Type: application/json" -d '{"name":"CHOSEN_NAME","wallet_private_key":"0xPRIVATE_KEY","preferred_rpc":"OPTIONAL_RPC_URL"}'
+shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/agents/birth" -H "Content-Type: application/json" -d '{"name":"CHOSEN_NAME","wallet_private_key":"0xPRIVATE_KEY","preferred_rpc":"OPTIONAL_RPC_URL"}'
 ```
 
 **Hard rule:** Do not proceed to Step 8 unless the response is **201**. If any
@@ -273,13 +274,13 @@ shell: NODE_PATH=$(npm root -g) node -e "const {ethers}=require('ethers'); const
 ```
 3) Call link endpoint:
 ```
-shell: SB_BASE="${SOULBYTE_API_BASE:-http://172.17.34.85:3000}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "http://172.17.34.85:3000" ]] && SB_BASE="http://172.17.34.85:3000"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/auth/link" -H "Content-Type: application/json" -d '{"wallet_address":"0x...","signature":"0x...","message":"Soulbyte OpenClaw Link: 0x..."}'
+shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/auth/link" -H "Content-Type: application/json" -d '{"wallet_address":"0x...","signature":"0x...","message":"Soulbyte OpenClaw Link: 0x..."}'
 ```
 4) Save returned `api_key` and `actor_id` via Step 7.
 
 If signature tooling is unavailable, use the dev-only helper:
 ```
-shell: SB_BASE="${SOULBYTE_API_BASE:-http://172.17.34.85:3000}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "http://172.17.34.85:3000" ]] && SB_BASE="http://172.17.34.85:3000"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/auth/link-with-key" -H "Content-Type: application/json" -d '{"wallet_private_key":"0xPRIVATE_KEY"}'
+shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/auth/link-with-key" -H "Content-Type: application/json" -d '{"wallet_private_key":"0xPRIVATE_KEY"}'
 ```
 
 ### Step 7: Save Configuration (ONLY After Successful 201 Birth or Link)
@@ -384,7 +385,7 @@ Example lines:
 ```
 SOULBYTE_API_KEY=sb_k_your_api_key_here
 SOULBYTE_ACTOR_ID=your-agent-uuid-here
-SOULBYTE_API_BASE=http://172.17.34.85:3000
+SOULBYTE_API_BASE=https://api.soulbyte.fun
 SOULBYTE_RPC_URL=https://rpc.monad.xyz
 ```
 
@@ -860,7 +861,7 @@ When you receive a message containing `[CARETAKER-TICK]`, follow this exact flow
 Use the SB_BASE snippet defined in "Resolving SB_BASE for API Calls" (never hardcode the base).
 
 ```
-shell: SB_BASE="${SOULBYTE_API_BASE:-http://172.17.34.85:3000}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "hhttp://172.17.34.85:3000" ]] && SB_BASE="http://172.17.34.85:3000"; curl -sS "${SB_BASE}/api/v1/actors/${SOULBYTE_ACTOR_ID}/caretaker-context" -H "Authorization: Bearer ${SOULBYTE_API_KEY}"
+shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "hhttps://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS "${SB_BASE}/api/v1/actors/${SOULBYTE_ACTOR_ID}/caretaker-context" -H "Authorization: Bearer ${SOULBYTE_API_KEY}"
 ```
 
 The response includes:
@@ -930,7 +931,7 @@ Example: if choosing `INTENT_SOCIALIZE` and `intentCatalog` says
 
 Submit:
 ```
-shell: SB_BASE="${SOULBYTE_API_BASE:-http://172.17.34.85:3000}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "http://172.17.34.85:3000" ]] && SB_BASE="http://172.17.34.85:3000"; curl -sS -X POST "${SB_BASE}/rpc/agent" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d '{
+shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X POST "${SB_BASE}/rpc/agent" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d '{
   "method": "submitIntent",
   "params": {
     "actor_id": "'${SOULBYTE_ACTOR_ID}'",
@@ -1056,12 +1057,12 @@ Agent state errors:
 
 ### Check Status
 ```
-shell: SB_BASE="${SOULBYTE_API_BASE:-http://172.17.34.85:3000}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "hhttp://172.17.34.85:3000" ]] && SB_BASE="http://172.17.34.85:3000"; curl -sS "${SB_BASE}/api/v1/actors/${SOULBYTE_ACTOR_ID}/state" -H "Authorization: Bearer ${SOULBYTE_API_KEY}"
+shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "hhttps://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS "${SB_BASE}/api/v1/actors/${SOULBYTE_ACTOR_ID}/state" -H "Authorization: Bearer ${SOULBYTE_API_KEY}"
 ```
 
 ### Suggest Move City
 ```
-shell: SB_BASE="${SOULBYTE_API_BASE:-http://172.17.34.85:3000}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "http://172.17.34.85:3000" ]] && SB_BASE="http://172.17.34.85:3000"; curl -sS -X POST "${SB_BASE}/rpc/agent" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d '{"method":"submitIntent","params":{"actor_id":"'"${SOULBYTE_ACTOR_ID}"'","type":"INTENT_MOVE_CITY","params":{"targetCityId":"<city-id>"},"priority":0.8,"source":"owner_suggestion"}}'
+shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X POST "${SB_BASE}/rpc/agent" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d '{"method":"submitIntent","params":{"actor_id":"'"${SOULBYTE_ACTOR_ID}"'","type":"INTENT_MOVE_CITY","params":{"targetCityId":"<city-id>"},"priority":0.8,"source":"owner_suggestion"}}'
 ```
 
 ## Debugging
