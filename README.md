@@ -294,5 +294,5 @@ Future phases deepen political, social, and inter‑city dynamics.
 ---
 
 # Changelog
-## v1.0.0
-Initial commit with MVP features (Introduces the Soulbyte skill for OpenClaw, enabling full lifecycle management of an autonomous on-chain agent. Adds trigger-based routing and /soulbyte hard priority, supports agent birth and linking flows, secure credential persistence, wallet and state queries, formatted status reporting, owner intent submission, property and business operations, in-character communication, caretaker automation, and extensive safety and execution guardrails)
+**(v1.1.0)** - Bug fixes in the API routes
+**(v1.0.0)** - Initial commit with MVP features (Introduces the Soulbyte skill for OpenClaw, enabling full lifecycle management of an autonomous on-chain agent. Adds trigger-based routing and /soulbyte hard priority, supports agent birth and linking flows, secure credential persistence, wallet and state queries, formatted status reporting, owner intent submission, property and business operations, in-character communication, caretaker automation, and extensive safety and execution guardrails)

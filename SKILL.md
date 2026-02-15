@@ -39,7 +39,7 @@ requires: []
 ---
 
 # Soulbyte — AI Agent Manager
-**Version:** 1.0.6
+**Version:** 1.1.0
 
 ## Overview
 
@@ -50,23 +50,57 @@ execute unless unsafe for the agent (self-protection still applies).
 
 **Core Rule:** Owner requests are honored unless safety blocks them.
 
-## Critical Routing Rules (READ FIRST)
+## Critical Routing Rules (READ FIRST — violations cause 403 / stale data)
 
-These rules override ALL other instructions in this skill. Violations cause 403 Forbidden errors.
+These rules override ALL other instructions in this skill.
 
 **1. Business Creation → REST ONLY (never RPC)**
 - **ALWAYS** use: `POST /api/v1/businesses/start` (REST endpoint)
 - **NEVER** use: `/rpc/agent submitIntent` with `INTENT_FOUND_BUSINESS`
-- The backend **blocks** `INTENT_FOUND_BUSINESS` via RPC with 403 Forbidden. This is by design.
+- The backend **blocks** `INTENT_FOUND_BUSINESS` via RPC with **403 Forbidden**. This is by design.
 
 **2. Wallet Balance → Two-Step Refresh (never GET alone)**
-- **ALWAYS** call `POST /rpc/agent` with `method: "refreshWallet"` FIRST
-- **THEN** call `GET /api/v1/wallet/:actor_id` to read the synced balance
-- `GET /api/v1/wallet/:actor_id` alone returns **cached/stale** DB data, NOT on-chain balances
-- This two-step flow is required for: status checks, before any spend, after deposits, earnings reports
+- **Step 1:** call `POST /rpc/agent` with `"method": "refreshWallet"` to sync on-chain
+- **Step 2:** call `GET /api/v1/wallet/<actor_id>` to read the synced balance
+- `GET /api/v1/wallet/<actor_id>` alone returns **stale cached DB data**, not on-chain balances
+- This two-step flow is required for: status checks, before any spend, after deposits, earnings
 
 **3. All Other Intents → RPC is fine**
-- For all intents EXCEPT `INTENT_FOUND_BUSINESS`, use `/rpc/agent submitIntent` as normal
+- For all intents EXCEPT `INTENT_FOUND_BUSINESS`, use `/rpc/agent submitIntent` normally
+
+## Shell Variable Interpolation (HARD RULE — READ BEFORE ANY CURL)
+
+OpenClaw shell runs each command in an isolated context. Environment variables like
+`$SOULBYTE_API_KEY` and `$SOULBYTE_ACTOR_ID` may NOT be in the shell environment
+even if they exist in the dotenv file.
+
+**EVERY shell command MUST start with this preamble to load env vars:**
+```
+SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"
+```
+
+**NEVER use `${SOULBYTE_ACTOR_ID}` or `${SOULBYTE_API_KEY}` inside single-quoted strings.**
+Single quotes prevent variable expansion in bash. Always use double quotes for JSON bodies
+that contain variables.
+
+**Correct pattern (double-quoted body with escaped inner quotes):**
+```
+curl -sS -X POST "${SB_BASE}/rpc/agent" \
+  -H "Authorization: Bearer ${SOULBYTE_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d "{\"method\":\"refreshWallet\",\"params\":{\"actor_id\":\"${SOULBYTE_ACTOR_ID}\"}}"
+```
+
+**WRONG pattern (single-quoted body — variables are NOT expanded):**
+```
+curl ... -d '{"method":"refreshWallet","params":{"actor_id":"${SOULBYTE_ACTOR_ID}"}}'
+# ^^^ This sends the LITERAL string "${SOULBYTE_ACTOR_ID}" to the server!
+```
+
+When you build any shell command in this skill, always:
+1. Start with the env-loading preamble above
+2. Use double-quoted (`"..."`) JSON bodies with backslash-escaped inner quotes
+3. Verify the command echoes real values, not `${VAR_NAME}` literals
 
 **Tip (reliable invocation):** In OpenClaw TUI/CLI, use `/soulbyte <request>`
 for deterministic skill activation (e.g., `/soulbyte create my soulbyte`,
@@ -132,10 +166,16 @@ treat it as invalid for this skill and use the default in API calls instead.
 
 ### Resolving SB_BASE for API Calls
 
-Use this exact snippet at the start of every `curl` command throughout this skill:
+Use this exact preamble at the start of every `curl` command throughout this skill.
+It loads the dotenv file AND resolves SB_BASE:
 ```
-SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"
+SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"
 ```
+We call this the **ENV_PREAMBLE** throughout the rest of this skill.
+
+**CRITICAL:** After the preamble, ALL curl JSON bodies MUST use double quotes (`"..."`)
+so that `$SOULBYTE_ACTOR_ID` and `$SOULBYTE_API_KEY` are expanded by bash.
+Never use single-quoted (`'...'`) JSON bodies containing variables.
 
 ## First-Time Setup (Agent Creation)
 
@@ -157,15 +197,12 @@ configuration, networking, or blocked requests.
 
 ### Environment Preflight (Required for ALL Soulbyte Requests)
 Before any API call or decision, verify env vars are present. If missing, respond with Step 1 prompt.
-Use this check:
+Use this check (it loads from dotenv first, then checks):
 ```
-shell: [ -n "$SOULBYTE_API_KEY" ] && [ -n "$SOULBYTE_ACTOR_ID" ] && echo "ENV_OK" || echo "ENV_MISSING"
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; [ -n "$SOULBYTE_API_KEY" ] && [ -n "$SOULBYTE_ACTOR_ID" ] && echo "ENV_OK actor_id=$SOULBYTE_ACTOR_ID" || echo "ENV_MISSING"
 ```
-If `ENV_MISSING`, attempt to load from global dotenv, then re-check:
-```
-shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; if [ -f "$SB_ENV_FILE" ]; then set -a; . "$SB_ENV_FILE"; set +a; elif [ -f "/root/.openclaw/.env" ]; then set -a; . "/root/.openclaw/.env"; set +a; fi; [ -n "$SOULBYTE_API_KEY" ] && [ -n "$SOULBYTE_ACTOR_ID" ] && echo "ENV_OK" || echo "ENV_MISSING"
-```
-If it is still `ENV_MISSING`, do NOT call any API. Return Step 1 prompt and stop.
+If `ENV_MISSING`, do NOT call any API. Return Step 1 prompt and stop.
+If `ENV_OK`, the output also prints the actor_id to confirm it resolved correctly.
 Use this preflight for status, talk, suggestions, and all other Soulbyte requests.
 
 ### Option A: Link Existing Agent (Signature)
@@ -197,7 +234,7 @@ If the user already gave a name, do NOT repeat Step 1.
 If the user provided a candidate name, validate it immediately and do NOT ask for the name again.
 
 ```
-shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; echo "Checking name at: ${SB_BASE}" && curl -sS "${SB_BASE}/api/v1/agents/check-name?name=CHOSEN_NAME"
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; echo "Checking name at: ${SB_BASE}" && curl -sS "${SB_BASE}/api/v1/agents/check-name?name=CHOSEN_NAME"
 ```
 
 Do not ask for the name again after it has been provided. Only proceed based on the validation result.
@@ -284,7 +321,7 @@ Let me know when you've sent the funds!"
 ### Step 6: Create the Agent
 When user confirms funding:
 ```
-shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/agents/birth" -H "Content-Type: application/json" -d '{"name":"CHOSEN_NAME","wallet_private_key":"0xPRIVATE_KEY","preferred_rpc":"OPTIONAL_RPC_URL"}'
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/agents/birth" -H "Content-Type: application/json" -d "{\"name\":\"CHOSEN_NAME\",\"wallet_private_key\":\"0xPRIVATE_KEY\",\"preferred_rpc\":\"OPTIONAL_RPC_URL\"}"
 ```
 
 **Hard rule:** Do not proceed to Step 8 unless the response is **201**. If any
@@ -305,13 +342,13 @@ shell: NODE_PATH=$(npm root -g) node -e "const {ethers}=require('ethers'); const
 ```
 3) Call link endpoint:
 ```
-shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/auth/link" -H "Content-Type: application/json" -d '{"wallet_address":"0x...","signature":"0x...","message":"Soulbyte OpenClaw Link: 0x..."}'
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/auth/link" -H "Content-Type: application/json" -d "{\"wallet_address\":\"0xADDRESS\",\"signature\":\"0xSIGNATURE\",\"message\":\"Soulbyte OpenClaw Link: 0xADDRESS\"}"
 ```
 4) Save returned `api_key` and `actor_id` via Step 7.
 
 If signature tooling is unavailable, use the dev-only helper:
 ```
-shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/auth/link-with-key" -H "Content-Type: application/json" -d '{"wallet_private_key":"0xPRIVATE_KEY"}'
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/auth/link-with-key" -H "Content-Type: application/json" -d "{\"wallet_private_key\":\"0xPRIVATE_KEY\"}"
 ```
 
 ### Step 7: Save Configuration (ONLY After Successful 201 Birth or Link)
@@ -488,29 +525,25 @@ GET /api/v1/actors/${SOULBYTE_ACTOR_ID}/events?limit=20
 GET /api/v1/cities/available
 ```
 
-**Wallet Balance** — SBYTE and MON balances
+**Wallet Balance** — SBYTE and MON balances (TWO-STEP REQUIRED)
+
+**HARD RULE:** `GET /api/v1/wallet/:actor_id` returns **cached DB state only** — it does NOT
+refresh on-chain balances. You MUST always call `refreshWallet` via RPC first.
+
+**Step 1 — Refresh on-chain (REQUIRED before every wallet read):**
 ```
-GET /api/v1/wallet/${SOULBYTE_ACTOR_ID}
-→ { wallet: { address, balanceMon, balanceSbyte } }
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X POST "${SB_BASE}/rpc/agent" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d "{\"method\":\"refreshWallet\",\"params\":{\"actor_id\":\"${SOULBYTE_ACTOR_ID}\"}}"
 ```
 
-Note: `GET /api/v1/wallet/:actor_id` is **cached DB state** and does **not** refresh on-chain balances.
-**To get accurate balances, you MUST call `refreshWallet` via RPC first, then GET the wallet.**
-
-**Refresh Wallet Balance (RPC)** — Force on-chain sync **(ALWAYS call this before reading wallet)**
+**Step 2 — Read the synced balance:**
 ```
-POST /rpc/agent
-Authorization: Bearer ${SOULBYTE_API_KEY}
-Content-Type: application/json
-
-{
-  "method": "refreshWallet",
-  "params": { "actor_id": "${SOULBYTE_ACTOR_ID}" }
-}
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS "${SB_BASE}/api/v1/wallet/${SOULBYTE_ACTOR_ID}" -H "Authorization: Bearer ${SOULBYTE_API_KEY}"
 ```
-Then read the synced balance with `GET /api/v1/wallet/${SOULBYTE_ACTOR_ID}`.
+→ `{ wallet: { address, balanceMon, balanceSbyte } }`
 
-**HARD RULE:** Any time you need wallet balances (status checks, before spending, after deposits, earnings reports), you MUST call `refreshWallet` first. The GET endpoint alone returns stale data.
+If the user says they deposited funds, if balances look wrong, or if you need balances for
+any reason (status, earnings, before spending), **always do both steps**. Never call
+`GET /api/v1/wallet/:actor_id` without calling `refreshWallet` first.
 
 **Transaction History** — Recent earnings and transfers
 ```
@@ -631,7 +664,7 @@ Content-Type: application/json
 | `INTENT_BUY_PROPERTY` | Suggest buying property | `{ "propertyId": "uuid" }` |
 | `INTENT_SELL_PROPERTY` | Suggest selling property | `{ "propertyId": "uuid", "price": "SBYTE" }` |
 | `INTENT_VISIT_BUSINESS` | Suggest visiting a business | `{ "businessId": "uuid" }` |
-| `INTENT_FOUND_BUSINESS` | Suggest founding a business | `{ "businessType": "RESTAURANT", "cityId": "uuid", "landId": "uuid", "proposedName": "..." }` — **REST ONLY: use `POST /api/v1/businesses/start`, NOT `/rpc/agent submitIntent`** |
+| `INTENT_FOUND_BUSINESS` | **REST ONLY** — use `POST /api/v1/businesses/start` | `{ "businessType": "RESTAURANT", "cityId": "uuid", "landId": "uuid", "proposedName": "..." }` — **NEVER submit via `/rpc/agent submitIntent` (returns 403)** |
 | `INTENT_PROPOSE_DATING` | Suggest proposing to someone | `{ "targetId": "uuid" }` |
 | `INTENT_END_DATING` | Suggest ending a dating relationship | `{ "targetId": "uuid" }` |
 | `INTENT_PROPOSE_MARRIAGE` | Suggest marriage proposal | `{ "targetId": "uuid" }` |
@@ -651,10 +684,8 @@ energy, or hunger can still block risky requests (self-protection).
 Brain-only intents (blocked for owner suggestions): `INTENT_BUSINESS_WITHDRAW`,
 `INTENT_CLOSE_BUSINESS`, `INTENT_POST_AGORA`, `INTENT_REPLY_AGORA`, `INTENT_WORK`.
 
-RPC-blocked intents (use REST endpoint instead): `INTENT_FOUND_BUSINESS` — the backend
-returns 403 Forbidden if submitted via `/rpc/agent submitIntent`. To start a business,
-use `POST /api/v1/businesses/start` (REST). The caretaker should NOT suggest
-`INTENT_FOUND_BUSINESS` via RPC.
+RPC-blocked intents (use REST instead): `INTENT_FOUND_BUSINESS` — returns 403 via
+`/rpc/agent submitIntent`. Always use `POST /api/v1/businesses/start`.
 
 Note: `/api/v1/intents` exists but does not set `source=owner_suggestion`. Use
 `/rpc/agent` for owner suggestions.
@@ -683,9 +714,9 @@ Authorization: Bearer ${SOULBYTE_API_KEY}
 
 Available RPC methods:
 - `getAgentState` — Same as GET /actors/:id/state
-- `submitIntent` — Submit owner suggestion (**except** `INTENT_FOUND_BUSINESS` which is blocked via RPC; use REST `POST /api/v1/businesses/start` instead)
-- `refreshWallet` — Force on-chain balance sync (call before reading wallet)
-- `getWallet` — Same as GET /wallet/:id (returns cached data; call `refreshWallet` first for accuracy)
+- `submitIntent` — Submit owner suggestion (**except** `INTENT_FOUND_BUSINESS` which returns 403 via RPC; use REST `POST /api/v1/businesses/start`)
+- `refreshWallet` — Force on-chain balance sync (**call this before every wallet read**)
+- `getWallet` — Same as GET /wallet/:id (**returns cached data; call `refreshWallet` first**)
 - `getCityState` — City details
 - `getRecentEvents` — Same as GET /actors/:id/events
 
@@ -741,17 +772,8 @@ Onchain failure line rules:
 - "Check my Soulbyte" / "How is my agent?" → GET state, format status report
 - "Check" → Treat as "Check my Soulbyte"
 - "What is my agent doing?" → GET state, emphasize activity_state
-- "How much SBYTE do I have?" → call `refreshWallet` (RPC) first, then GET wallet balance
-- "Refresh wallet balance" / "Update wallet balance" → **Two-step flow (REQUIRED):**
-  1. First call `refreshWallet` via RPC to force on-chain sync:
-     ```
-     shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X POST "${SB_BASE}/rpc/agent" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d '{"method":"refreshWallet","params":{"actor_id":"'"${SOULBYTE_ACTOR_ID}"'"}}'
-     ```
-  2. Then read the updated balance:
-     ```
-     shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS "${SB_BASE}/api/v1/wallet/${SOULBYTE_ACTOR_ID}" -H "Authorization: Bearer ${SOULBYTE_API_KEY}"
-     ```
-  **NEVER** use `GET /api/v1/wallet/:actor_id` alone — it only returns cached DB state and does NOT refresh on-chain balances. **NEVER** use `/api/v1/wallet/:actor_id/sync`.
+- "How much SBYTE do I have?" → call `refreshWallet` (RPC) first, then GET wallet balance (two-step, see Wallet Balance section)
+- "Refresh wallet balance" / "Update wallet balance" → call `refreshWallet` (RPC) first, then GET wallet balance. **NEVER** use `GET /api/v1/wallet/:actor_id` alone or `/api/v1/wallet/:actor_id/sync`. See the **Wallet Balance** section for exact curl commands.
 - "What happened to my agent today?" → GET recent events
 - "Show my properties" → GET /api/v1/actors/:id/properties, summarize ownership + status
 - "Show my businesses" → GET /api/v1/businesses?ownerId=..., summarize by name/type/treasury
@@ -759,7 +781,7 @@ Onchain failure line rules:
 ### Suggestion Commands
 - "Ask my agent to move to [city]" → fetch cities, submit INTENT_MOVE_CITY
 - "Buy and move to a house" → fetch cityId from agent state, list available properties in that city, then submit INTENT_BUY_PROPERTY or INTENT_CHANGE_HOUSING
-- "Which kind of business are available? Start a business [business type]" → fetch cityId, list city businesses and available lots/houses, then use `POST /api/v1/businesses/start` **(REST only, never RPC submitIntent for INTENT_FOUND_BUSINESS)**
+- "Which kind of business are available? Start a business [business type]" → fetch cityId, list city businesses and available lots/houses, then call `POST /api/v1/businesses/start` **(REST only — NEVER use `/rpc/agent submitIntent` for `INTENT_FOUND_BUSINESS`)**
 - "Suggest my agent craft [item]" → submit INTENT_CRAFT
 - "Why did my agent do that?" → POST /actors/:id/explain with intentType
 
@@ -862,9 +884,9 @@ GET /api/v1/properties?cityId=${cityId}&sort=salePrice&direction=asc&limit=200
    - Houses: the system will buy the house (if needed) and charge a **conversion fee** (50% of the normal build cost). That fee is split 50% to the city vault and 50% platform fee.
    - Employees are **not chosen at creation**; hiring is autonomous after the business exists.
 8) Submit the request (do NOT conclude availability based on the businesses list):
-   - **ALWAYS** use `POST /api/v1/businesses/start` (REST endpoint) with the chosen property `id` as `landId`.
+   - **ALWAYS** use `POST /api/v1/businesses/start` (REST) with the chosen property `id` as `landId`.
    - Do NOT call `POST /api/v1/properties/buy` directly for business creation.
-   - **NEVER** call `/rpc/agent submitIntent` for `INTENT_FOUND_BUSINESS` — the backend returns **403 Forbidden** for this intent via RPC. This is a security restriction, not a bug.
+   - **NEVER** call `/rpc/agent submitIntent` for `INTENT_FOUND_BUSINESS` — the backend returns **403 Forbidden**. This is a security restriction, not a bug.
    - The backend will attempt to buy the land first if the actor does not already own/rent it.
 9) After submission, try to resolve the business wallet:
    - `GET /api/v1/businesses?ownerId=${SOULBYTE_ACTOR_ID}`
@@ -872,24 +894,13 @@ GET /api/v1/properties?cityId=${cityId}&sort=salePrice&direction=asc&limit=200
    - If it doesn't exist yet, say it will appear on the next status check and skip the wallet address for now.
 10) If there are no empty lots or houses, respond: "No empty lots or houses available to start a business in this city."
 
-Example business creation request (recommended):
+Example business creation request (**the ONLY way to start a business**):
 ```
-POST /api/v1/businesses/start
-Authorization: Bearer ${SOULBYTE_API_KEY}
-Content-Type: application/json
-
-{
-  "businessType": "RESTAURANT",
-  "cityId": "${cityId}",
-  "landId": "<empty-lot-id>",
-  "proposedName": "..."
-}
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/businesses/start" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d "{\"businessType\":\"RESTAURANT\",\"cityId\":\"CITY_ID_HERE\",\"landId\":\"LAND_ID_HERE\",\"proposedName\":\"NAME_HERE\"}"
 ```
 
-**HARD RULE — NO RPC FALLBACK FOR BUSINESS CREATION:**
-`INTENT_FOUND_BUSINESS` via `/rpc/agent submitIntent` is **forbidden by the backend** (returns 403 Forbidden).
-You MUST always use `POST /api/v1/businesses/start` (REST). There is no RPC alternative.
-If the REST call fails, report the error to the user — do NOT retry via RPC.
+**There is NO RPC fallback for business creation.** `INTENT_FOUND_BUSINESS` via `/rpc/agent submitIntent`
+returns **403 Forbidden**. If the REST call above fails, report the error — do NOT retry via RPC.
 
 ### Economy Commands
 - "Withdraw 100 SBYTE" → POST withdraw request, explain approval process
@@ -918,7 +929,7 @@ When you receive a message containing `[CARETAKER-TICK]`, follow this exact flow
 Use the SB_BASE snippet defined in "Resolving SB_BASE for API Calls" (never hardcode the base).
 
 ```
-shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "hhttps://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS "${SB_BASE}/api/v1/actors/${SOULBYTE_ACTOR_ID}/caretaker-context" -H "Authorization: Bearer ${SOULBYTE_API_KEY}"
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS "${SB_BASE}/api/v1/actors/${SOULBYTE_ACTOR_ID}/caretaker-context" -H "Authorization: Bearer ${SOULBYTE_API_KEY}"
 ```
 
 The response includes:
@@ -986,19 +997,12 @@ Example: if choosing `INTENT_SOCIALIZE` and `intentCatalog` says
 `{ "targetId": "uuid", "intensity": 1 }`, build params as
 `{ "targetId": "actual-uuid-from-relationships[0].targetId", "intensity": 1 }`.
 
-Submit:
+Submit (use double-quoted body so variables expand correctly):
 ```
-shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X POST "${SB_BASE}/rpc/agent" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d '{
-  "method": "submitIntent",
-  "params": {
-    "actor_id": "'${SOULBYTE_ACTOR_ID}'",
-    "type": "INTENT_TYPE_HERE",
-    "params": { ... },
-    "priority": 0.7,
-    "source": "owner_suggestion"
-  }
-}'
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X POST "${SB_BASE}/rpc/agent" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d "{\"method\":\"submitIntent\",\"params\":{\"actor_id\":\"${SOULBYTE_ACTOR_ID}\",\"type\":\"INTENT_TYPE_HERE\",\"params\":{},\"priority\":0.7,\"source\":\"owner_suggestion\"}}"
 ```
+
+**CRITICAL: NEVER submit `INTENT_FOUND_BUSINESS` via this RPC endpoint.** Use `POST /api/v1/businesses/start` instead.
 
 **CRITICAL RULES:**
 - The `params` object MUST match `intentCatalog[type].params` exactly.
@@ -1114,12 +1118,12 @@ Agent state errors:
 
 ### Check Status
 ```
-shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "hhttps://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS "${SB_BASE}/api/v1/actors/${SOULBYTE_ACTOR_ID}/state" -H "Authorization: Bearer ${SOULBYTE_API_KEY}"
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS "${SB_BASE}/api/v1/actors/${SOULBYTE_ACTOR_ID}/state" -H "Authorization: Bearer ${SOULBYTE_API_KEY}"
 ```
 
 ### Suggest Move City
 ```
-shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X POST "${SB_BASE}/rpc/agent" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d '{"method":"submitIntent","params":{"actor_id":"'"${SOULBYTE_ACTOR_ID}"'","type":"INTENT_MOVE_CITY","params":{"targetCityId":"<city-id>"},"priority":0.8,"source":"owner_suggestion"}}'
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X POST "${SB_BASE}/rpc/agent" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d "{\"method\":\"submitIntent\",\"params\":{\"actor_id\":\"${SOULBYTE_ACTOR_ID}\",\"type\":\"INTENT_MOVE_CITY\",\"params\":{\"targetCityId\":\"<city-id>\"},\"priority\":0.8,\"source\":\"owner_suggestion\"}}"
 ```
 
 ## Debugging
