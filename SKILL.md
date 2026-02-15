@@ -716,6 +716,7 @@ Onchain failure line rules:
 - "Check" → Treat as "Check my Soulbyte"
 - "What is my agent doing?" → GET state, emphasize activity_state
 - "How much SBYTE do I have?" → GET wallet balance
+- "Refresh wallet balance" / "Update wallet balance" → call `refreshWallet` (RPC), then GET wallet balance (do NOT use `/api/v1/wallet/:actor_id/sync`)
 - "What happened to my agent today?" → GET recent events
 - "Show my properties" → GET /api/v1/actors/:id/properties, summarize ownership + status
 - "Show my businesses" → GET /api/v1/businesses?ownerId=..., summarize by name/type/treasury
@@ -801,8 +802,8 @@ Business creation flow (for "start a business"):
 GET /api/v1/actors/${SOULBYTE_ACTOR_ID}/state
 ```
 4) List city businesses (for context) and collect both:
-   - Non-empty lots/houses available for purchase (for conversion)
-   - Empty lots (for new builds)
+   - Empty lots (for new builds) — prefer these
+   - Non-empty lots/houses available for purchase (for conversion) — only if user explicitly wants a house conversion
 ```
 GET /api/v1/businesses?cityId=${cityId}
 GET /api/v1/cities/${cityId}/properties?available=true
@@ -813,20 +814,21 @@ If the city properties endpoint fails, use the back-compat alias:
 GET /api/v1/properties?cityId=${cityId}&available=true
 GET /api/v1/properties?cityId=${cityId}&sort=salePrice&direction=asc&limit=200
 ```
-5) Filter options into two buckets:
+5) Filter options into two buckets (prefer empty lots for business builds):
    - Empty lots (build new): `isEmptyLot = true` + `salePrice > 0` + (`forSale = true` **or** `ownerId = null`)
    - Houses (buy + convert): `isEmptyLot = false` + `salePrice > 0` + `tenantId = null` + `underConstruction = false` + (`forSale = true` **or** `ownerId = null`)
    - Treat `ownerId = null` + `salePrice > 0` as **available for purchase** even if `forSale = false` (genesis/city-owned listings).
 6) Present numbered options and ask the user to pick a number:
+   - Default to **empty lots only** unless the user asks for a house conversion.
    - Empty lots: include **one lot per `lotType`** (cheapest per type), plus **one random** lot overall if available.
-   - Houses: include **one per `housingTier`** (cheapest per tier), plus **one random** house overall if available.
-   - If **no houses** match, still continue with **empty lots only** (do NOT fail early).
+   - If the user asks for conversion, then include **one per `housingTier`** (cheapest per tier), plus **one random** house overall if available.
 7) Inform the user:
    - Empty lots: the lot will be used for the business and construction may take time.
    - Houses: the system will buy the house (if needed) and charge a **conversion fee** (50% of the normal build cost). That fee is split 50% to the city vault and 50% platform fee.
    - Employees are **not chosen at creation**; hiring is autonomous after the business exists.
 8) Submit the request (do NOT conclude availability based on the businesses list):
    - Always `POST /api/v1/businesses/start` using the chosen property `id` as `landId`.
+   - Do NOT call `POST /api/v1/properties/buy` directly for business creation.
    - The backend will attempt to buy the land first if the actor does not already own/rent it.
 9) After submission, try to resolve the business wallet:
    - `GET /api/v1/businesses?ownerId=${SOULBYTE_ACTOR_ID}`
