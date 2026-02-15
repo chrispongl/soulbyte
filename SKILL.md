@@ -39,7 +39,7 @@ requires: []
 ---
 
 # Soulbyte — AI Agent Manager
-**Version:** 1.0.4
+**Version:** 1.0.5
 
 ## Overview
 
@@ -476,6 +476,18 @@ GET /api/v1/wallet/${SOULBYTE_ACTOR_ID}
 → { wallet: { address, balanceMon, balanceSbyte } }
 ```
 
+**Refresh Wallet Balance (RPC)** — Force on-chain sync (use USER RPC)
+```
+POST /rpc/agent
+Authorization: Bearer ${SOULBYTE_API_KEY}
+Content-Type: application/json
+
+{
+  "method": "refreshWallet",
+  "params": { "actor_id": "${SOULBYTE_ACTOR_ID}" }
+}
+```
+
 **Transaction History** — Recent earnings and transfers
 ```
 GET /api/v1/wallet/${SOULBYTE_ACTOR_ID}/transactions?limit=20
@@ -707,7 +719,7 @@ Onchain failure line rules:
 ### Suggestion Commands
 - "Ask my agent to move to [city]" → fetch cities, submit INTENT_MOVE_CITY
 - "Buy and move to a house" → fetch cityId from agent state, list available properties in that city, then submit INTENT_BUY_PROPERTY or INTENT_CHANGE_HOUSING
-- "Which kind of business are available? Start a business [business type]" → fetch cityId, list city businesses and available empty lots, then submit INTENT_FOUND_BUSINESS
+- "Which kind of business are available? Start a business [business type]" → fetch cityId, list city businesses and available lots/houses, then submit INTENT_FOUND_BUSINESS (buy land first if not already owned/rented)
 - "Suggest my agent craft [item]" → submit INTENT_CRAFT
 - "Why did my agent do that?" → POST /actors/:id/explain with intentType
 
@@ -784,14 +796,18 @@ Business creation flow (for "start a business"):
 ```
 GET /api/v1/actors/${SOULBYTE_ACTOR_ID}/state
 ```
-4) List city businesses (for context) and available empty lots.
+4) List city businesses (for context) and collect both:
+   - Non-empty lots/houses available for purchase (for conversion)
+   - Empty lots (for new builds)
 ```
 GET /api/v1/businesses?cityId=${cityId}
 GET /api/v1/cities/${cityId}/properties?available=true
+GET /api/v1/cities/${cityId}/properties?sort=salePrice&direction=asc&limit=200
 ```
 If the city properties endpoint fails, use the back-compat alias:
 ```
 GET /api/v1/properties?cityId=${cityId}&available=true
+GET /api/v1/properties?cityId=${cityId}&sort=salePrice&direction=asc&limit=200
 ```
 5) Filter options into two buckets:
    - Empty lots (build new): `isEmptyLot = true` + `salePrice > 0` + (`forSale = true` **or** `ownerId = null`)
@@ -806,8 +822,8 @@ GET /api/v1/properties?cityId=${cityId}&available=true
    - Houses: the system will buy the house (if needed) and charge a **conversion fee** (50% of the normal build cost). That fee is split 50% to the city vault and 50% platform fee.
    - Employees are **not chosen at creation**; hiring is autonomous after the business exists.
 8) Submit the request (do NOT conclude availability based on the businesses list):
-   - If the user picks an empty lot: `POST /api/v1/businesses/start`
-   - If the user picks a house: first `POST /api/v1/properties/buy` for that property, then `POST /api/v1/businesses/start` using the same `landId` (propertyId).
+   - Always `POST /api/v1/businesses/start` using the chosen property `id` as `landId`.
+   - The backend will attempt to buy the land first if the actor does not already own/rent it.
 9) After submission, try to resolve the business wallet:
    - `GET /api/v1/businesses?ownerId=${SOULBYTE_ACTOR_ID}`
    - If a matching business name appears, call `GET /api/v1/businesses/${businessId}` and return `wallet.walletAddress`
