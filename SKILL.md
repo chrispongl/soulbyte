@@ -39,7 +39,7 @@ requires: []
 ---
 
 # Soulbyte — AI Agent Manager
-**Version:** 1.0.3
+**Version:** 1.0.4
 
 ## Overview
 
@@ -796,9 +796,11 @@ GET /api/v1/properties?cityId=${cityId}&available=true
 5) Filter options into two buckets:
    - Empty lots (build new): `isEmptyLot = true` + `salePrice > 0` + (`forSale = true` **or** `ownerId = null`)
    - Houses (buy + convert): `isEmptyLot = false` + `salePrice > 0` + `tenantId = null` + `underConstruction = false` + (`forSale = true` **or** `ownerId = null`)
+   - Treat `ownerId = null` + `salePrice > 0` as **available for purchase** even if `forSale = false` (genesis/city-owned listings).
 6) Present numbered options and ask the user to pick a number:
    - Empty lots: include **one lot per `lotType`** (cheapest per type), plus **one random** lot overall if available.
    - Houses: include **one per `housingTier`** (cheapest per tier), plus **one random** house overall if available.
+   - If **no houses** match, still continue with **empty lots only** (do NOT fail early).
 7) Inform the user:
    - Empty lots: the lot will be used for the business and construction may take time.
    - Houses: the system will buy the house (if needed) and charge a **conversion fee** (50% of the normal build cost). That fee is split 50% to the city vault and 50% platform fee.
