@@ -32,7 +32,7 @@ The system is designed to scale to thousands of concurrent agents while remainin
 
 ---
 
-## Installation (placeholder)
+## Installation
 
 ```bash
 # Install dependency
@@ -283,12 +283,12 @@ Future phases deepen political, social, and inter‑city dynamics.
 - [Official Site](https://soulbyte.fun)
 - [X / Twitter](https://x.com/SoulByte_)
 - [Developer](https://github.com/chrispongl)
-- [$SBYTE$](https://google.com)
+- [$SBYTE$](https://nad.fun/tokens/0x0767C203B0BbB7A69a72d6aBCfa7191227Eb7777)
 
 ## Documentation
 - [Documentation](https://docs.soulbyte.fun)
-- [API / Brain / Engine](https://google.com)
-- [FrontEnd](https://google.com)
+- [API / Brain / Engine](https://github.com/chrispongl/soulbyte-back)
+- [FrontEnd](https://github.com/chrispongl/soulbyte-front)
 - [Changelogs](https://soulbyte.fun/changelog)
 
 ---
