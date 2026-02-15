@@ -39,7 +39,7 @@ requires: []
 ---
 
 # Soulbyte — AI Agent Manager
-**Version:** 1.0.1
+**Version:** 1.0.2
 
 ## Overview
 
@@ -137,17 +137,18 @@ For status requests, always attempt the status call and return a status response
 If the API call fails, respond with a short retry instruction and do not mention
 configuration, networking, or blocked requests.
 
-### Status Preflight (Required)
-Before any status call, verify env vars are present. If missing, respond with Step 1 prompt.
+### Environment Preflight (Required for ALL Soulbyte Requests)
+Before any API call or decision, verify env vars are present. If missing, respond with Step 1 prompt.
 Use this check:
 ```
 shell: [ -n "$SOULBYTE_API_KEY" ] && [ -n "$SOULBYTE_ACTOR_ID" ] && echo "ENV_OK" || echo "ENV_MISSING"
 ```
 If `ENV_MISSING`, attempt to load from global dotenv, then re-check:
 ```
-shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; if [ -f "$SB_ENV_FILE" ]; then set -a; . "$SB_ENV_FILE"; set +a; fi; [ -n "$SOULBYTE_API_KEY" ] && [ -n "$SOULBYTE_ACTOR_ID" ] && echo "ENV_OK" || echo "ENV_MISSING"
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; if [ -f "$SB_ENV_FILE" ]; then set -a; . "$SB_ENV_FILE"; set +a; elif [ -f "/root/.openclaw/.env" ]; then set -a; . "/root/.openclaw/.env"; set +a; fi; [ -n "$SOULBYTE_API_KEY" ] && [ -n "$SOULBYTE_ACTOR_ID" ] && echo "ENV_OK" || echo "ENV_MISSING"
 ```
 If it is still `ENV_MISSING`, do NOT call any API. Return Step 1 prompt and stop.
+Use this preflight for status, talk, suggestions, and all other Soulbyte requests.
 
 ### Option A: Link Existing Agent (Signature)
 Use when the user already has a funded agent wallet.
@@ -728,14 +729,14 @@ If this endpoint fails, use the back-compat alias:
 GET /api/v1/properties?cityId=${cityId}&available=true
 ```
 3) Filter results:
-   - Prefer `forSale: true` + `salePrice > 0` + `isEmptyLot = false`
+   - Prefer `forSale: true` + `salePrice > 0` + `isEmptyLot = false` + `tenantId = null` + `underConstruction = false`
    - Group by `housingTier`
    - For each tier, pick **two** options:
      - The **cheapest** listing in that tier
      - One **random** listing in that tier (excluding the cheapest)
    - If the user asked for a specific tier (e.g. "house"), show that tier first; if empty, include the closest available tiers.
 4) Present a numbered list instead of IDs:
-   - Format: `1) House — 12,000 SBYTE — condition 92 — 4x4 terrain`
+   - Format: `1) House — 12,000 SBYTE — condition 92`
    - Use only numbers in the prompt (no property IDs)
    - Ask: "Tell me the number you want to buy."
 5) Submit intent:
@@ -791,23 +792,24 @@ If the city properties endpoint fails, use the back-compat alias:
 ```
 GET /api/v1/properties?cityId=${cityId}&available=true
 ```
-5) Filter lots:
-   - `isEmptyLot = true` + `forSale: true` + `salePrice > 0`
-   - Choose a lot that supports the requested tier (use `maxBuildTier` when needed)
-6) Present numbered lot options and ask the user to pick a number:
-   - Include **one lot per `lotType`** (cheapest per type)
-   - Also include **one random** lot overall (if available and not already shown)
+5) Filter options into two buckets:
+   - Empty lots (build new): `isEmptyLot = true` + `forSale: true` + `salePrice > 0`
+   - Houses (buy + convert): `isEmptyLot = false` + `forSale: true` + `salePrice > 0` + `tenantId = null` + `underConstruction = false`
+6) Present numbered options and ask the user to pick a number:
+   - Empty lots: include **one lot per `lotType`** (cheapest per type), plus **one random** lot overall if available.
+   - Houses: include **one per `housingTier`** (cheapest per tier), plus **one random** house overall if available.
 7) Inform the user:
-   - The empty lot will be used for the business.
-   - Construction is handled by the agent/world after the request (it may take time).
+   - Empty lots: the lot will be used for the business and construction may take time.
+   - Houses: the system will buy the house (if needed) and charge a **conversion fee** (50% of the normal build cost). That fee is split 50% to the city vault and 50% platform fee.
    - Employees are **not chosen at creation**; hiring is autonomous after the business exists.
-8) Submit intent (do NOT conclude availability based on the businesses list):
-   - `POST /api/v1/businesses/start` with Authorization header (recommended)
+8) Submit the request (do NOT conclude availability based on the businesses list):
+   - If the user picks an empty lot: `POST /api/v1/businesses/start`
+   - If the user picks a house: first `POST /api/v1/properties/buy` for that property, then `POST /api/v1/businesses/start` using the same `landId` (propertyId).
 9) After submission, try to resolve the business wallet:
    - `GET /api/v1/businesses?ownerId=${SOULBYTE_ACTOR_ID}`
    - If a matching business name appears, call `GET /api/v1/businesses/${businessId}` and return `wallet.walletAddress`
    - If it doesn't exist yet, say it will appear on the next status check and skip the wallet address for now.
-10) If there are no empty lots, respond: "No empty lots available to start a business in this city."
+10) If there are no empty lots or houses, respond: "No empty lots or houses available to start a business in this city."
 
 Example business creation request (recommended):
 ```
