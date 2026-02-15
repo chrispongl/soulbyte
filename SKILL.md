@@ -716,7 +716,7 @@ Onchain failure line rules:
 - "Check" → Treat as "Check my Soulbyte"
 - "What is my agent doing?" → GET state, emphasize activity_state
 - "How much SBYTE do I have?" → GET wallet balance
-- "Refresh wallet balance" / "Update wallet balance" → call `refreshWallet` (RPC), then GET wallet balance (do NOT use `/api/v1/wallet/:actor_id/sync`)
+- "Refresh wallet balance" / "Update wallet balance" → call `refreshWallet` (RPC), then GET wallet balance (do NOT use `/api/v1/wallet/:actor_id/sync` or `/api/v1/wallet/:actor_id` alone)
 - "What happened to my agent today?" → GET recent events
 - "Show my properties" → GET /api/v1/actors/:id/properties, summarize ownership + status
 - "Show my businesses" → GET /api/v1/businesses?ownerId=..., summarize by name/type/treasury
@@ -829,6 +829,7 @@ GET /api/v1/properties?cityId=${cityId}&sort=salePrice&direction=asc&limit=200
 8) Submit the request (do NOT conclude availability based on the businesses list):
    - Always `POST /api/v1/businesses/start` using the chosen property `id` as `landId`.
    - Do NOT call `POST /api/v1/properties/buy` directly for business creation.
+   - Do NOT call `/rpc/agent submitIntent` for `INTENT_FOUND_BUSINESS` (use the REST endpoint).
    - The backend will attempt to buy the land first if the actor does not already own/rent it.
 9) After submission, try to resolve the business wallet:
    - `GET /api/v1/businesses?ownerId=${SOULBYTE_ACTOR_ID}`
