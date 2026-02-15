@@ -39,7 +39,7 @@ requires: []
 ---
 
 # Soulbyte — AI Agent Manager
-**Version:** 1.1.0
+**Version:** 1.1.1
 
 ## Overview
 
@@ -199,7 +199,23 @@ configuration, networking, or blocked requests.
 Before any API call or decision, verify env vars are present. If missing, respond with Step 1 prompt.
 Use this check (it loads from dotenv first, then checks):
 ```
-shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; [ -n "$SOULBYTE_API_KEY" ] && [ -n "$SOULBYTE_ACTOR_ID" ] && echo "ENV_OK actor_id=$SOULBYTE_ACTOR_ID" || echo "ENV_MISSING"
+shell: \
+SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; \
+SB_ENV_FILE="${SB_ENV_DIR}/.env"; \
+mkdir -p "$SB_ENV_DIR"; \
+if [ ! -f "$SB_ENV_FILE" ]; then \
+  touch "$SB_ENV_FILE"; \
+  chmod 600 "$SB_ENV_FILE" 2>/dev/null || true; \
+  echo "ENV_CREATED file=$SB_ENV_FILE"; \
+fi; \
+set -a && . "$SB_ENV_FILE" && set +a; \
+[ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; \
+if [ -n "$SOULBYTE_API_KEY" ] && [ -n "$SOULBYTE_ACTOR_ID" ]; then \
+  echo "ENV_OK actor_id=$SOULBYTE_ACTOR_ID file=$SB_ENV_FILE"; \
+else \
+  echo "ENV_MISSING file=$SB_ENV_FILE"; \
+fi
+
 ```
 If `ENV_MISSING`, do NOT call any API. Return Step 1 prompt and stop.
 If `ENV_OK`, the output also prints the actor_id to confirm it resolved correctly.
@@ -383,8 +399,9 @@ upsert () { \
 \
 upsert "SOULBYTE_API_KEY" "RETURNED_API_KEY" "$SB_ENV_FILE"; \
 upsert "SOULBYTE_ACTOR_ID" "RETURNED_ACTOR_ID" "$SB_ENV_FILE"; \
-upsert "SOULBYTE_API_BASE" "RESOLVED_API_BASE" "$SB_ENV_FILE"; \
-upsert "SOULBYTE_RPC_URL" "OPTIONAL_RPC_URL_OR_DEFAULT" "$SB_ENV_FILE"; \
+[ -n "$RESOLVED_API_BASE" ] && upsert "SOULBYTE_API_BASE" "$RESOLVED_API_BASE" "$SB_ENV_FILE" || true; \
+[ -n "$OPTIONAL_RPC_URL_OR_DEFAULT" ] && upsert "SOULBYTE_RPC_URL" "$OPTIONAL_RPC_URL_OR_DEFAULT" "$SB_ENV_FILE" || true; \
+
 \
 echo "WROTE_OK: $SB_ENV_FILE"; \
 echo "--- VERIFY (redacted) ---"; \
