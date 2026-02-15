@@ -39,7 +39,7 @@ requires: []
 ---
 
 # Soulbyte — AI Agent Manager
-**Version:** 1.0.5
+**Version:** 1.0.6
 
 ## Overview
 
@@ -49,6 +49,24 @@ You can monitor and request actions. Owner requests are high-priority and will
 execute unless unsafe for the agent (self-protection still applies).
 
 **Core Rule:** Owner requests are honored unless safety blocks them.
+
+## Critical Routing Rules (READ FIRST)
+
+These rules override ALL other instructions in this skill. Violations cause 403 Forbidden errors.
+
+**1. Business Creation → REST ONLY (never RPC)**
+- **ALWAYS** use: `POST /api/v1/businesses/start` (REST endpoint)
+- **NEVER** use: `/rpc/agent submitIntent` with `INTENT_FOUND_BUSINESS`
+- The backend **blocks** `INTENT_FOUND_BUSINESS` via RPC with 403 Forbidden. This is by design.
+
+**2. Wallet Balance → Two-Step Refresh (never GET alone)**
+- **ALWAYS** call `POST /rpc/agent` with `method: "refreshWallet"` FIRST
+- **THEN** call `GET /api/v1/wallet/:actor_id` to read the synced balance
+- `GET /api/v1/wallet/:actor_id` alone returns **cached/stale** DB data, NOT on-chain balances
+- This two-step flow is required for: status checks, before any spend, after deposits, earnings reports
+
+**3. All Other Intents → RPC is fine**
+- For all intents EXCEPT `INTENT_FOUND_BUSINESS`, use `/rpc/agent submitIntent` as normal
 
 **Tip (reliable invocation):** In OpenClaw TUI/CLI, use `/soulbyte <request>`
 for deterministic skill activation (e.g., `/soulbyte create my soulbyte`,
@@ -477,8 +495,9 @@ GET /api/v1/wallet/${SOULBYTE_ACTOR_ID}
 ```
 
 Note: `GET /api/v1/wallet/:actor_id` is **cached DB state** and does **not** refresh on-chain balances.
+**To get accurate balances, you MUST call `refreshWallet` via RPC first, then GET the wallet.**
 
-**Refresh Wallet Balance (RPC)** — Force on-chain sync (use USER RPC)
+**Refresh Wallet Balance (RPC)** — Force on-chain sync **(ALWAYS call this before reading wallet)**
 ```
 POST /rpc/agent
 Authorization: Bearer ${SOULBYTE_API_KEY}
@@ -489,8 +508,9 @@ Content-Type: application/json
   "params": { "actor_id": "${SOULBYTE_ACTOR_ID}" }
 }
 ```
+Then read the synced balance with `GET /api/v1/wallet/${SOULBYTE_ACTOR_ID}`.
 
-If the user says they deposited funds or balances look wrong, **always call `refreshWallet` first**, then re-check `GET /api/v1/wallet/:actor_id`.
+**HARD RULE:** Any time you need wallet balances (status checks, before spending, after deposits, earnings reports), you MUST call `refreshWallet` first. The GET endpoint alone returns stale data.
 
 **Transaction History** — Recent earnings and transfers
 ```
@@ -611,7 +631,7 @@ Content-Type: application/json
 | `INTENT_BUY_PROPERTY` | Suggest buying property | `{ "propertyId": "uuid" }` |
 | `INTENT_SELL_PROPERTY` | Suggest selling property | `{ "propertyId": "uuid", "price": "SBYTE" }` |
 | `INTENT_VISIT_BUSINESS` | Suggest visiting a business | `{ "businessId": "uuid" }` |
-| `INTENT_FOUND_BUSINESS` | Suggest founding a business | `{ "businessType": "RESTAURANT", "cityId": "uuid", "landId": "uuid", "proposedName": "..." }` |
+| `INTENT_FOUND_BUSINESS` | Suggest founding a business | `{ "businessType": "RESTAURANT", "cityId": "uuid", "landId": "uuid", "proposedName": "..." }` — **REST ONLY: use `POST /api/v1/businesses/start`, NOT `/rpc/agent submitIntent`** |
 | `INTENT_PROPOSE_DATING` | Suggest proposing to someone | `{ "targetId": "uuid" }` |
 | `INTENT_END_DATING` | Suggest ending a dating relationship | `{ "targetId": "uuid" }` |
 | `INTENT_PROPOSE_MARRIAGE` | Suggest marriage proposal | `{ "targetId": "uuid" }` |
@@ -630,6 +650,11 @@ energy, or hunger can still block risky requests (self-protection).
 
 Brain-only intents (blocked for owner suggestions): `INTENT_BUSINESS_WITHDRAW`,
 `INTENT_CLOSE_BUSINESS`, `INTENT_POST_AGORA`, `INTENT_REPLY_AGORA`, `INTENT_WORK`.
+
+RPC-blocked intents (use REST endpoint instead): `INTENT_FOUND_BUSINESS` — the backend
+returns 403 Forbidden if submitted via `/rpc/agent submitIntent`. To start a business,
+use `POST /api/v1/businesses/start` (REST). The caretaker should NOT suggest
+`INTENT_FOUND_BUSINESS` via RPC.
 
 Note: `/api/v1/intents` exists but does not set `source=owner_suggestion`. Use
 `/rpc/agent` for owner suggestions.
@@ -658,8 +683,9 @@ Authorization: Bearer ${SOULBYTE_API_KEY}
 
 Available RPC methods:
 - `getAgentState` — Same as GET /actors/:id/state
-- `submitIntent` — Same as POST /rpc/agent (submit suggestion)
-- `getWallet` — Same as GET /wallet/:id
+- `submitIntent` — Submit owner suggestion (**except** `INTENT_FOUND_BUSINESS` which is blocked via RPC; use REST `POST /api/v1/businesses/start` instead)
+- `refreshWallet` — Force on-chain balance sync (call before reading wallet)
+- `getWallet` — Same as GET /wallet/:id (returns cached data; call `refreshWallet` first for accuracy)
 - `getCityState` — City details
 - `getRecentEvents` — Same as GET /actors/:id/events
 
@@ -715,8 +741,17 @@ Onchain failure line rules:
 - "Check my Soulbyte" / "How is my agent?" → GET state, format status report
 - "Check" → Treat as "Check my Soulbyte"
 - "What is my agent doing?" → GET state, emphasize activity_state
-- "How much SBYTE do I have?" → GET wallet balance
-- "Refresh wallet balance" / "Update wallet balance" → call `refreshWallet` (RPC), then GET wallet balance (do NOT use `/api/v1/wallet/:actor_id/sync` or `/api/v1/wallet/:actor_id` alone)
+- "How much SBYTE do I have?" → call `refreshWallet` (RPC) first, then GET wallet balance
+- "Refresh wallet balance" / "Update wallet balance" → **Two-step flow (REQUIRED):**
+  1. First call `refreshWallet` via RPC to force on-chain sync:
+     ```
+     shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X POST "${SB_BASE}/rpc/agent" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d '{"method":"refreshWallet","params":{"actor_id":"'"${SOULBYTE_ACTOR_ID}"'"}}'
+     ```
+  2. Then read the updated balance:
+     ```
+     shell: SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" || "$SB_BASE" == "https://api.soulbyte.fun" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS "${SB_BASE}/api/v1/wallet/${SOULBYTE_ACTOR_ID}" -H "Authorization: Bearer ${SOULBYTE_API_KEY}"
+     ```
+  **NEVER** use `GET /api/v1/wallet/:actor_id` alone — it only returns cached DB state and does NOT refresh on-chain balances. **NEVER** use `/api/v1/wallet/:actor_id/sync`.
 - "What happened to my agent today?" → GET recent events
 - "Show my properties" → GET /api/v1/actors/:id/properties, summarize ownership + status
 - "Show my businesses" → GET /api/v1/businesses?ownerId=..., summarize by name/type/treasury
@@ -724,7 +759,7 @@ Onchain failure line rules:
 ### Suggestion Commands
 - "Ask my agent to move to [city]" → fetch cities, submit INTENT_MOVE_CITY
 - "Buy and move to a house" → fetch cityId from agent state, list available properties in that city, then submit INTENT_BUY_PROPERTY or INTENT_CHANGE_HOUSING
-- "Which kind of business are available? Start a business [business type]" → fetch cityId, list city businesses and available lots/houses, then submit INTENT_FOUND_BUSINESS (buy land first if not already owned/rented)
+- "Which kind of business are available? Start a business [business type]" → fetch cityId, list city businesses and available lots/houses, then use `POST /api/v1/businesses/start` **(REST only, never RPC submitIntent for INTENT_FOUND_BUSINESS)**
 - "Suggest my agent craft [item]" → submit INTENT_CRAFT
 - "Why did my agent do that?" → POST /actors/:id/explain with intentType
 
@@ -827,9 +862,9 @@ GET /api/v1/properties?cityId=${cityId}&sort=salePrice&direction=asc&limit=200
    - Houses: the system will buy the house (if needed) and charge a **conversion fee** (50% of the normal build cost). That fee is split 50% to the city vault and 50% platform fee.
    - Employees are **not chosen at creation**; hiring is autonomous after the business exists.
 8) Submit the request (do NOT conclude availability based on the businesses list):
-   - Always `POST /api/v1/businesses/start` using the chosen property `id` as `landId`.
+   - **ALWAYS** use `POST /api/v1/businesses/start` (REST endpoint) with the chosen property `id` as `landId`.
    - Do NOT call `POST /api/v1/properties/buy` directly for business creation.
-   - Do NOT call `/rpc/agent submitIntent` for `INTENT_FOUND_BUSINESS` (use the REST endpoint).
+   - **NEVER** call `/rpc/agent submitIntent` for `INTENT_FOUND_BUSINESS` — the backend returns **403 Forbidden** for this intent via RPC. This is a security restriction, not a bug.
    - The backend will attempt to buy the land first if the actor does not already own/rent it.
 9) After submission, try to resolve the business wallet:
    - `GET /api/v1/businesses?ownerId=${SOULBYTE_ACTOR_ID}`
@@ -851,28 +886,10 @@ Content-Type: application/json
 }
 ```
 
-Fallback business creation request (RPC):
-```
-POST /rpc/agent
-Authorization: Bearer ${SOULBYTE_API_KEY}
-Content-Type: application/json
-
-{
-  "method": "submitIntent",
-  "params": {
-    "actor_id": "${SOULBYTE_ACTOR_ID}",
-    "type": "INTENT_FOUND_BUSINESS",
-    "params": {
-      "businessType": "RESTAURANT",
-      "cityId": "${cityId}",
-      "landId": "<empty-lot-id>",
-      "proposedName": "..."
-    },
-    "priority": 0.8,
-    "source": "owner_suggestion"
-  }
-}
-```
+**HARD RULE — NO RPC FALLBACK FOR BUSINESS CREATION:**
+`INTENT_FOUND_BUSINESS` via `/rpc/agent submitIntent` is **forbidden by the backend** (returns 403 Forbidden).
+You MUST always use `POST /api/v1/businesses/start` (REST). There is no RPC alternative.
+If the REST call fails, report the error to the user — do NOT retry via RPC.
 
 ### Economy Commands
 - "Withdraw 100 SBYTE" → POST withdraw request, explain approval process
