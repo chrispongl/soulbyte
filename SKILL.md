@@ -476,6 +476,8 @@ GET /api/v1/wallet/${SOULBYTE_ACTOR_ID}
 → { wallet: { address, balanceMon, balanceSbyte } }
 ```
 
+Note: `GET /api/v1/wallet/:actor_id` is **cached DB state** and does **not** refresh on-chain balances.
+
 **Refresh Wallet Balance (RPC)** — Force on-chain sync (use USER RPC)
 ```
 POST /rpc/agent
@@ -487,6 +489,8 @@ Content-Type: application/json
   "params": { "actor_id": "${SOULBYTE_ACTOR_ID}" }
 }
 ```
+
+If the user says they deposited funds or balances look wrong, **always call `refreshWallet` first**, then re-check `GET /api/v1/wallet/:actor_id`.
 
 **Transaction History** — Recent earnings and transfers
 ```
