@@ -39,7 +39,7 @@ requires: []
 ---
 
 # Soulbyte — AI Agent Manager
-**Version:** 1.0.2
+**Version:** 1.0.3
 
 ## Overview
 
@@ -729,7 +729,8 @@ If this endpoint fails, use the back-compat alias:
 GET /api/v1/properties?cityId=${cityId}&available=true
 ```
 3) Filter results:
-   - Prefer `forSale: true` + `salePrice > 0` + `isEmptyLot = false` + `tenantId = null` + `underConstruction = false`
+   - Prefer `salePrice > 0` + `isEmptyLot = false` + `tenantId = null` + `underConstruction = false`
+   - Accept listings where `forSale = true` **or** city-owned listings (`ownerId = null`) with `salePrice > 0`
    - Group by `housingTier`
    - For each tier, pick **two** options:
      - The **cheapest** listing in that tier
@@ -793,8 +794,8 @@ If the city properties endpoint fails, use the back-compat alias:
 GET /api/v1/properties?cityId=${cityId}&available=true
 ```
 5) Filter options into two buckets:
-   - Empty lots (build new): `isEmptyLot = true` + `forSale: true` + `salePrice > 0`
-   - Houses (buy + convert): `isEmptyLot = false` + `forSale: true` + `salePrice > 0` + `tenantId = null` + `underConstruction = false`
+   - Empty lots (build new): `isEmptyLot = true` + `salePrice > 0` + (`forSale = true` **or** `ownerId = null`)
+   - Houses (buy + convert): `isEmptyLot = false` + `salePrice > 0` + `tenantId = null` + `underConstruction = false` + (`forSale = true` **or** `ownerId = null`)
 6) Present numbered options and ask the user to pick a number:
    - Empty lots: include **one lot per `lotType`** (cheapest per type), plus **one random** lot overall if available.
    - Houses: include **one per `housingTier`** (cheapest per tier), plus **one random** house overall if available.
