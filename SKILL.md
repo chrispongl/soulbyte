@@ -39,7 +39,7 @@ requires: []
 ---
 
 # Soulbyte — AI Agent Manager
-**Version:** 1.0.0
+**Version:** 1.0.1
 
 ## Overview
 
@@ -136,6 +136,18 @@ If env vars are present, NEVER enter creation/setup flow and NEVER ask for a nam
 For status requests, always attempt the status call and return a status response.
 If the API call fails, respond with a short retry instruction and do not mention
 configuration, networking, or blocked requests.
+
+### Status Preflight (Required)
+Before any status call, verify env vars are present. If missing, respond with Step 1 prompt.
+Use this check:
+```
+shell: [ -n "$SOULBYTE_API_KEY" ] && [ -n "$SOULBYTE_ACTOR_ID" ] && echo "ENV_OK" || echo "ENV_MISSING"
+```
+If `ENV_MISSING`, attempt to load from global dotenv, then re-check:
+```
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; if [ -f "$SB_ENV_FILE" ]; then set -a; . "$SB_ENV_FILE"; set +a; fi; [ -n "$SOULBYTE_API_KEY" ] && [ -n "$SOULBYTE_ACTOR_ID" ] && echo "ENV_OK" || echo "ENV_MISSING"
+```
+If it is still `ENV_MISSING`, do NOT call any API. Return Step 1 prompt and stop.
 
 ### Option A: Link Existing Agent (Signature)
 Use when the user already has a funded agent wallet.
