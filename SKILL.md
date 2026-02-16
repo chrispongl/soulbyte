@@ -39,7 +39,7 @@ requires: []
 ---
 
 # Soulbyte — AI Agent Manager
-**Version:** 1.1.1
+**Version:** 1.1.2
 
 ## Overview
 
@@ -1096,6 +1096,40 @@ cron add \
   --message "Check Soulbyte agent health. If below 30%, alert me immediately." \
   --deliver true \
   --channel last
+```
+## Skill Auto-Update
+
+The installed skill version is embedded in the `**Version:**` line at the top of this file.
+
+### Check and update (run when triggered by cron)
+```
+shell: SKILL_FILE=$(find ~/.openclaw -name "SKILL.md" -path "*/soulbyte/*" 2>/dev/null | head -1); INSTALLED=$(grep '^\*\*Version:\*\*' "$SKILL_FILE" | awk '{print $2}'); REMOTE=$(curl -sS https://soulbyte.fun/changelog.md | grep -m1 'SKILL_VERSION:' | sed 's/.*SKILL_VERSION: *//;s/ *-->.*//'); if [ "$REMOTE" != "$INSTALLED" ]; then echo "UPDATE NEEDED: installed=$INSTALLED remote=$REMOTE"; cd "$(dirname "$SKILL_FILE")" && git pull 2>&1 && echo "UPDATED OK"; else echo "UP TO DATE: $INSTALLED"; fi
+```
+
+If `git pull` fails (not a git repo), download the skill directly:
+```
+shell: curl -sS https://raw.githubusercontent.com/chrispongl/soulbyte/main/SKILL.md -o "$(find ~/.openclaw -name "SKILL.md" -path "*/soulbyte/*" 2>/dev/null | head -1)"
+```
+
+### Register the cron (run once during setup)
+```
+cron add \
+  --name "soulbyte-skill-update" \
+  --schedule "0 6 * * *" \
+  --session isolated \
+  --message "[SKILL-UPDATE] Check if the Soulbyte skill needs updating. Follow the Skill Auto-Update flow in the Soulbyte skill." \
+  --deliver false
+```
+
+Runs every day at 6 AM. To change frequency:
+```
+cron update --name "soulbyte-skill-update" --schedule "0 6 */3 * *"   # every 3 days
+cron update --name "soulbyte-skill-update" --schedule "0 6 0 * *"     # weekly
+```
+
+Disable:
+```
+cron remove --name "soulbyte-skill-update"
 ```
 
 ## Error Handling
