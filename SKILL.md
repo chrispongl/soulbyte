@@ -35,11 +35,15 @@ triggers:
   - "agent events"
   - "city info"
   - "agent wallet"
+  - "recover"
+  - "recover soulbyte"
+  - "recover my soulbyte"
+  - "link soulbyte"
 requires: []
 ---
 
 # Soulbyte — AI Agent Manager
-**Version:** 1.1.2
+**Version:** 1.2.0
 
 ## Overview
 
@@ -221,6 +225,86 @@ If `ENV_MISSING`, do NOT call any API. Return Step 1 prompt and stop.
 If `ENV_OK`, the output also prints the actor_id to confirm it resolved correctly.
 Use this preflight for status, talk, suggestions, and all other Soulbyte requests.
 
+**HARD RULE — Unrecognized Request Guard (S1):**
+If the preflight returned `ENV_OK`, you MUST NOT ask for a name, private key, or
+enter any setup/creation step. The agent already exists.
+
+If `ENV_OK` and the user's request does not match any known command pattern
+(status, talk, suggest, withdraw, earnings, business, property, city, etc.),
+respond with:
+```
+"I'm not sure what you'd like me to do with your Soulbyte. Try:
+• 'check' — see your agent's status
+• 'talk to my soulbyte: [message]' — chat with your agent
+• 'suggest to my agent: [action]' — request an action
+• 'withdraw [amount] SBYTE' — request a withdrawal
+• 'recover' — re-link a lost Soulbyte
+Type '/soulbyte' to see all available commands."
+```
+NEVER enter the creation flow if `ENV_OK` was returned, regardless of what the
+user says. The creation flow is ONLY for `ENV_MISSING`.
+
+### Soulbyte Recovery Flow (S3)
+
+**Triggers:** `"recover"`, `"recover soulbyte"`, `"recover my soulbyte"`, `"link soulbyte"`
+
+**CRITICAL:** If the user's message matches a recovery trigger, **skip the normal
+preflight entirely**. Recovery must work even when env vars are missing/broken —
+that's the exact scenario where recovery is needed.
+
+**Step R1: Warn and Collect PK**
+```
+"⚠️ Soulbyte Recovery Mode
+
+You are about to recover a Soulbyte using a wallet private key.
+This will overwrite your current Soulbyte connection if any.
+
+Please provide your wallet private key (the one used when creating your Soulbyte).
+(64 hex characters, with or without a 0x prefix)"
+```
+
+**Step R2: Derive Address Locally**
+Normalize the PK (prepend `0x` if missing), then derive the address:
+```
+shell: NODE_PATH=$(npm root -g) node -e "const {ethers}=require('ethers'); console.log(new ethers.Wallet('0xPRIVATE_KEY_HERE').address)"
+```
+
+**Step R3: Sign Message Locally**
+Sign the link message with the private key (PK never leaves the local machine):
+```
+shell: NODE_PATH=$(npm root -g) node -e "const {ethers}=require('ethers'); const pk='0xPRIVATE_KEY_HERE'; const addr=new ethers.Wallet(pk).address; const msg=\`Soulbyte OpenClaw Link: \${addr}\`; const sig=new ethers.Wallet(pk).signMessageSync(msg); console.log(JSON.stringify({address:addr,message:msg,signature:sig}));"
+```
+
+**Step R4: Call Link Endpoint**
+Send only the signature and derived address to the backend (PK stays local):
+```
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/auth/link" -H "Content-Type: application/json" -d "{\"wallet_address\":\"0xDERIVED_ADDRESS\",\"signature\":\"0xSIGNATURE\",\"message\":\"Soulbyte OpenClaw Link: 0xDERIVED_ADDRESS\"}"
+```
+
+**Step R5: Handle Response**
+- **200/201**: Extract `api_key`, `actor_id`, `actor_name` from response.
+  Run Step 7 (save config), then show:
+  ```
+  "🔗 Soulbyte recovered successfully!
+  Your agent [ACTOR_NAME] has been re-linked.
+  Config saved to: [SB_ENV_FILE]
+
+  Say 'check my soulbyte' to see your agent's status!"
+  ```
+- **404**: `"No agent found linked to this wallet address. Double-check that you're using the same private key from when you created your Soulbyte."`
+- **Any other error**: Show the error message. Do NOT enter the creation flow.
+
+**HARD RULE:** After recovery completes (success or fail), NEVER fall through
+into the creation flow. Return to the main command handler and stop.
+
+If signature tooling is unavailable (ethers not installed), fall back to the
+dev-only `link-with-key` endpoint:
+```
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/auth/link-with-key" -H "Content-Type: application/json" -d "{\"wallet_private_key\":\"0xPRIVATE_KEY\"}"
+```
+
+---
+
 ### Option A: Link Existing Agent (Signature)
 Use when the user already has a funded agent wallet.
 ```
@@ -276,11 +360,57 @@ If the name is valid and available, proceed directly to Step 3 with no extra com
 
 Always prefer `shell` commands over `web_fetch`.
 
-### Step 3: Get Wallet Private Key
+### Step 3: Get Wallet
 ```
-"I need a wallet private key for your agent to operate on Monad blockchain.
+"I need a wallet for your agent to operate on Monad blockchain.
 
-⚠️ IMPORTANT:
+Choose an option:
+1️⃣ **Generate a new wallet** — I'll create a fresh wallet for your Soulbyte
+2️⃣ **Import existing wallet** — Use a private key you already have
+
+Which do you prefer? (1 or 2)"
+```
+
+#### Step 3a: Generate New Wallet (if user picks option 1)
+Generate a new random wallet using ethers.js:
+```
+shell: NODE_PATH=$(npm root -g) node -e "const {ethers}=require('ethers'); const w=ethers.Wallet.createRandom(); console.log(JSON.stringify({address:w.address,privateKey:w.privateKey,mnemonic:w.mnemonic.phrase}))"
+```
+
+If the command fails due to missing module, respond:
+```
+"I couldn't generate a wallet because the `ethers` module is missing.
+Please run `npm i -g ethers` on the OpenClaw machine, then choose option 1 again.
+Alternatively, choose option 2 to import an existing wallet."
+```
+
+On success, parse the JSON output and display:
+```
+"🔑 New wallet generated!
+
+📍 Address: 0xABCD...1234
+🔐 Private Key: 0x... (SAVE THIS SECURELY — you'll need it to recover your Soulbyte)
+📝 Recovery Phrase: [12 words] (WRITE THIS DOWN AND STORE SAFELY)
+
+⚠️ IMPORTANT: Save your private key and recovery phrase NOW.
+They will NOT be shown again. If you lose them, you lose access to your agent's wallet.
+
+Now fund this wallet on Monad mainnet:
+• Send at least 10 MON (for gas fees)
+• Send at least 500 SBYTE (starting funds)
+
+Send to: 0xABCD...1234
+
+Let me know when you've sent the funds!"
+```
+
+Store the generated private key internally (in memory only) for Step 5/6.
+Skip Step 4 (RPC preference) and Step 5 (derive address), as the address is
+already known. Proceed directly to Step 6 when the user confirms funding.
+
+#### Step 3b: Import Existing Wallet (if user picks option 2)
+```
+"⚠️ IMPORTANT:
 - Create a NEW, DEDICATED wallet just for your Soulbyte (e.g. in MetaMask)
 - Do NOT use your main wallet with existing funds
 - The private key will be encrypted and stored securely on the server
@@ -289,6 +419,7 @@ Always prefer `shell` commands over `web_fetch`.
 Paste your wallet private key (64 hex characters, with or without a 0x prefix).
 If you omit 0x, I will add it automatically before any crypto operations."
 ```
+Proceed to Step 4 after receiving the key.
 
 ### Step 4: Optional RPC Preference (User-Provided)
 HARD RULE: After a valid private key is received, you MUST ask this RPC question
