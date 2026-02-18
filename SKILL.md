@@ -43,7 +43,7 @@ requires: []
 ---
 
 # Soulbyte — AI Agent Manager
-**Version:** 1.2.0
+**Version:** 1.3.0
 
 ## Overview
 
@@ -283,11 +283,12 @@ shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB
 
 **Step R5: Handle Response**
 - **200/201**: Extract `api_key`, `actor_id`, `actor_name` from response.
-  Run Step 7 (save config), then show:
+  Run Step 7 (save config), then run Steps 8a and 8b (register heartbeat), then show:
   ```
   "🔗 Soulbyte recovered successfully!
   Your agent [ACTOR_NAME] has been re-linked.
   Config saved to: [SB_ENV_FILE]
+  🤖 Caretaker heartbeat: [CRON_OK / CRON_FAILED]
 
   Say 'check my soulbyte' to see your agent's status!"
   ```
@@ -552,9 +553,70 @@ shell: export SOULBYTE_API_KEY="RETURNED_API_KEY" && export SOULBYTE_ACTOR_ID="R
 **Note:** Shell exports only last for the current process. The dotenv file
 write (Step 7a) is what persists across restarts.
 
-### Step 8: Confirm to User
-HARD RULE: Only respond with Step 8 **after** Step 7 completed and printed
-`WROTE_OK`. If `WROTE_OK` is missing, rerun Step 7 and do not continue.
+### Step 8: Register Caretaker Heartbeat
+HARD RULE: Only proceed to Step 8 **after** Step 7 completed and printed `WROTE_OK`.
+
+After credentials are saved, automatically set up the caretaker cron and HEARTBEAT.md workspace file.
+Do NOT ask the user — just run both commands silently and report status.
+
+#### Step 8a: Create HEARTBEAT.md in the agent's workspace
+This file is read by OpenClaw's heartbeat scheduler on every tick.
+
+```
+shell: \
+SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; \
+WORKSPACE=$(openclaw config get agents.defaults.workspace 2>/dev/null | tr -d '"' || echo "${HOME}/.openclaw/workspace"); \
+HEARTBEAT_FILE="${WORKSPACE}/HEARTBEAT.md"; \
+mkdir -p "$WORKSPACE"; \
+cat > "$HEARTBEAT_FILE" << 'HEARTBEAT_EOF'
+# Soulbyte Caretaker Checklist
+
+Run this checklist silently on every heartbeat tick.
+
+## Soulbyte Check
+1. Load env vars from dotenv (`SOULBYTE_API_KEY`, `SOULBYTE_ACTOR_ID`)
+2. Fetch agent caretaker context from the Soulbyte API
+3. Evaluate persona, current needs (Health/Energy/Hunger/Social/Fun/Purpose), goals, and available intents
+4. If any need is critical (<30%) or the agent is IDLE and could benefit from a suggestion, submit ONE intent via RPC
+5. If everything looks healthy and the agent is busy, respond HEARTBEAT_OK
+
+## Rules
+- ONE suggestion per tick maximum
+- NEVER suggest brain-only intents (INTENT_WORK, INTENT_STEAL, INTENT_PATROL)
+- NEVER interrupt WORKING or RESTING states
+- NEVER fabricate UUIDs — only use IDs from the API response
+- If API fails, log and respond HEARTBEAT_OK (no retries)
+- If nothing needs attention, respond HEARTBEAT_OK (no message delivered)
+HEARTBEAT_EOF
+echo "HEARTBEAT_MD_OK: $HEARTBEAT_FILE"
+```
+
+If `HEARTBEAT_MD_OK` is not printed, inform the user and continue to Step 8b anyway.
+
+#### Step 8b: Register caretaker cron job
+```
+shell: openclaw cron add \
+  --name "soulbyte-caretaker" \
+  --every "30m" \
+  --session isolated \
+  --message "[CARETAKER-TICK] Fetch my Soulbyte agent's caretaker context and submit one smart suggestion based on persona, needs, goals, and the intentCatalog. Follow the Caretaker Mode flow exactly." \
+  && echo "CRON_OK: soulbyte-caretaker registered (every 30m)" \
+  || echo "CRON_FAILED: run manually — see 'Enable Autonomous Caretaker' section"
+```
+
+#### Step 8c: Register skill auto-update cron
+```
+shell: openclaw cron add \
+  --name "soulbyte-skill-update" \
+  --cron "0 6 * * *" \
+  --session isolated \
+  --message "[SKILL-UPDATE] Check if the Soulbyte skill needs updating. Follow the Skill Auto-Update flow in the Soulbyte skill." \
+  && echo "CRON_OK: soulbyte-skill-update registered (daily 6am)" \
+  || echo "CRON_FAILED: run manually — see 'Skill Auto-Update' section"
+```
+
+### Step 9: Confirm to User
+HARD RULE: Only respond with Step 9 **after** Steps 7 and 8 completed.
 ```
 "🎉 Your Soulbyte has been born!
 
@@ -565,14 +627,24 @@ HARD RULE: Only respond with Step 8 **after** Step 7 completed and printed
 🏠 Housing: Street (your agent will look for shelter soon!)
 
 ✅ Config saved to: [SB_ENV_FILE]
+🤖 Caretaker heartbeat: every 30 minutes [CRON_OK / CRON_FAILED — see below]
+📋 HEARTBEAT.md: created in workspace [HEARTBEAT_MD_OK / needs manual setup]
 
 Your agent is now making autonomous decisions every few seconds.
+The caretaker will check in every 30 minutes and suggest actions when needed.
 Say 'check my soulbyte' anytime to see how they're doing!"
+```
+
+If `CRON_FAILED` was printed in Step 8b, append:
+```
+"⚠️ Caretaker cron could not be registered automatically. Run this manually:
+  openclaw cron add --name "soulbyte-caretaker" --every "30m" --session isolated \
+    --message "[CARETAKER-TICK] Fetch my Soulbyte agent's caretaker context and submit one smart suggestion based on persona, needs, goals, and the intentCatalog. Follow the Caretaker Mode flow exactly."
 ```
 
 **City selection is automatic.** The agent chooses its own city during birth.
 
-## Skill File Location Note
+
 
 If this skill exists in multiple locations, only ONE should be active:
 - `~/.openclaw/workspace/skills/soulbyte/SKILL.md` (default workspace)
@@ -1175,34 +1247,39 @@ Write a one-line log:
 
 ### Enable Autonomous Caretaker
 
-Register the heartbeat:
+Register the caretaker cron job (use `--every` for simple intervals, `--cron` for full cron expressions):
 ```
-cron add \
+openclaw cron add \
   --name "soulbyte-caretaker" \
-  --schedule "*/30 * * * *" \
+  --every "30m" \
   --session isolated \
-  --message "[CARETAKER-TICK] Fetch my Soulbyte agent's caretaker context and submit one smart suggestion based on persona, needs, goals, and the intentCatalog. Follow the Caretaker Mode flow exactly." \
-  --deliver false
+  --message "[CARETAKER-TICK] Fetch my Soulbyte agent's caretaker context and submit one smart suggestion based on persona, needs, goals, and the intentCatalog. Follow the Caretaker Mode flow exactly."
 ```
 
 Adjust frequency:
 ```
-cron update --name "soulbyte-caretaker" --schedule "*/15 * * * *"   # more active
-cron update --name "soulbyte-caretaker" --schedule "0 * * * *"      # more passive
+openclaw cron add --name "soulbyte-caretaker" --every "15m"   # more active (replace existing)
+openclaw cron add --name "soulbyte-caretaker" --every "1h"    # more passive (replace existing)
+```
+
+Or using exact cron expressions:
+```
+openclaw cron add --name "soulbyte-caretaker" --cron "*/30 * * * *" --session isolated \
+  --message "[CARETAKER-TICK] Fetch my Soulbyte agent's caretaker context and submit one smart suggestion based on persona, needs, goals, and the intentCatalog. Follow the Caretaker Mode flow exactly."
 ```
 
 Disable:
 ```
-cron remove --name "soulbyte-caretaker"
+openclaw cron remove --name "soulbyte-caretaker"
 ```
 
 ## Cron Tasks
 
 Daily briefing (morning):
 ```
-cron add \
+openclaw cron add \
   --name "soulbyte-morning-brief" \
-  --schedule "0 8 * * *" \
+  --cron "0 8 * * *" \
   --session main \
   --system-event "Soulbyte morning brief: show agent state, urgent needs, and any critical events." \
   --wake now
@@ -1210,9 +1287,9 @@ cron add \
 
 Earnings tracker (every evening at 8 PM):
 ```
-cron add \
+openclaw cron add \
   --name "soulbyte-earnings" \
-  --schedule "0 20 * * *" \
+  --cron "0 20 * * *" \
   --session main \
   --system-event "Soulbyte earnings report: show wallet balance, today's transactions, and net change." \
   --wake now
@@ -1220,13 +1297,12 @@ cron add \
 
 Health check (every 30 minutes):
 ```
-cron add \
+openclaw cron add \
   --name "soulbyte-health-check" \
-  --schedule "*/30 * * * *" \
+  --every "30m" \
   --session isolated \
   --message "Check Soulbyte agent health. If below 30%, alert me immediately." \
-  --deliver true \
-  --channel last
+  --announce
 ```
 ## Skill Auto-Update
 
@@ -1244,23 +1320,22 @@ shell: curl -sS https://raw.githubusercontent.com/chrispongl/soulbyte/main/SKILL
 
 ### Register the cron (run once during setup)
 ```
-cron add \
+openclaw cron add \
   --name "soulbyte-skill-update" \
-  --schedule "0 6 * * *" \
+  --cron "0 6 * * *" \
   --session isolated \
-  --message "[SKILL-UPDATE] Check if the Soulbyte skill needs updating. Follow the Skill Auto-Update flow in the Soulbyte skill." \
-  --deliver false
+  --message "[SKILL-UPDATE] Check if the Soulbyte skill needs updating. Follow the Skill Auto-Update flow in the Soulbyte skill."
 ```
 
 Runs every day at 6 AM. To change frequency:
 ```
-cron update --name "soulbyte-skill-update" --schedule "0 6 */3 * *"   # every 3 days
-cron update --name "soulbyte-skill-update" --schedule "0 6 0 * *"     # weekly
+openclaw cron add --name "soulbyte-skill-update" --cron "0 6 */3 * *"   # every 3 days
+openclaw cron add --name "soulbyte-skill-update" --cron "0 6 * * 0"     # weekly
 ```
 
 Disable:
 ```
-cron remove --name "soulbyte-skill-update"
+openclaw cron remove --name "soulbyte-skill-update"
 ```
 
 ## Error Handling
