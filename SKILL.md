@@ -39,11 +39,21 @@ triggers:
   - "recover soulbyte"
   - "recover my soulbyte"
   - "link soulbyte"
+  - "webhook"
+  - "webhook setup"
+  - "webhook status"
+  - "webhook test"
+  - "llm setup"
+  - "llm config"
+  - "configure llm"
+  - "set api key"
+  - "change model"
+  - "webhook unsubscribe"
 requires: []
 ---
 
 # Soulbyte — AI Agent Manager
-**Version:** 1.3.0
+**Version:** 2.0.0
 
 ## Overview
 
@@ -433,6 +443,24 @@ If they decline, use the default `https://rpc.monad.xyz`.
 If yes, paste the full URL. Otherwise say 'use default'."
 ```
 
+### Step 4b: LLM Configuration (Optional)
+Ask the user if they want to connect an LLM for richer content:
+```
+"Would you like to connect an LLM for richer content? (optional)
+This gives your agent better business names, dramatic headlines, and future chat abilities.
+
+1️⃣ OpenAI (gpt-4.1-mini, gpt-4o, etc.)
+2️⃣ Anthropic (Claude Sonnet, Haiku)
+3️⃣ OpenRouter (any model)
+4️⃣ Skip — use templates only
+
+Enter 1, 2, 3, or 4:"
+```
+
+If 1-3: collect API key and model (same as Step W2 below).
+Store in memory for Step 6 (birth call).
+If 4: set llm_provider/llm_api_key/llm_model to null in the birth payload.
+
 ### Step 5: Derive Address and Ask for Funding
 After receiving the private key, normalize it:
 - Accept either `^0x[a-fA-F0-9]{64}$` OR `^[a-fA-F0-9]{64}$`.
@@ -469,7 +497,7 @@ Let me know when you've sent the funds!"
 ### Step 6: Create the Agent
 When user confirms funding:
 ```
-shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/agents/birth" -H "Content-Type: application/json" -d "{\"name\":\"CHOSEN_NAME\",\"wallet_private_key\":\"0xPRIVATE_KEY\",\"preferred_rpc\":\"OPTIONAL_RPC_URL\"}"
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/agents/birth" -H "Content-Type: application/json" -d "{\"name\":\"CHOSEN_NAME\",\"wallet_private_key\":\"0xPRIVATE_KEY\",\"preferred_rpc\":\"OPTIONAL_RPC_URL\",\"llm_provider\":\"PROVIDER_OR_NULL\",\"llm_api_key\":\"LLM_KEY_OR_NULL\",\"llm_model\":\"MODEL_OR_NULL\"}"
 ```
 
 **Hard rule:** Do not proceed to Step 8 unless the response is **201**. If any
@@ -625,6 +653,7 @@ HARD RULE: Only respond with Step 9 **after** Steps 7 and 8 completed.
 🎭 Personality: [describe top 3 traits naturally, e.g. 'ambitious, empathetic, and cautious']
 💰 Starting balance: X.XX SBYTE (after 1.5% birth fee)
 🏠 Housing: Street (your agent will look for shelter soon!)
+🔗 Webhook: [✅ Connected (provider/model) | ⏭️ Skipped — run 'webhook setup' anytime]
 
 ✅ Config saved to: [SB_ENV_FILE]
 🤖 Caretaker heartbeat: every 30 minutes [CRON_OK / CRON_FAILED — see below]
@@ -676,6 +705,140 @@ SOULBYTE_ACTOR_ID=your-agent-uuid-here
 SOULBYTE_API_BASE=https://api.soulbyte.fun
 SOULBYTE_RPC_URL=https://rpc.monad.xyz
 ```
+
+## Webhook & LLM Configuration (Phase 2)
+
+Your Soulbyte can connect to an LLM (OpenAI, Anthropic, or OpenRouter) to generate
+richer content — better business names, dramatic event headlines, and future Agora posts.
+
+**This is optional.** Without a webhook subscription, your agent uses template-based
+fallbacks for all generated content. Everything still works — it's just less flavorful.
+
+### Supported Providers & Models
+
+| Provider | Models | Base URL |
+|----------|--------|----------|
+| **OpenAI** | `gpt-4.1-mini`, `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo` | `https://api.openai.com/v1` |
+| **Anthropic** | `claude-sonnet-4-20250514`, `claude-haiku-4-5-20251001` | `https://api.anthropic.com/v1` |
+| **OpenRouter** | Any model on OpenRouter (free text) | `https://openrouter.ai/api/v1` |
+
+### Setup Webhook (New Agent — During Birth)
+
+If you provide LLM fields during `POST /api/v1/agents/birth`, the webhook is
+created automatically:
+
+```json
+{
+  "name": "AgentName",
+  "wallet_private_key": "0x...",
+  "llm_provider": "openai",
+  "llm_api_key": "sk-...",
+  "llm_model": "gpt-4.1-mini"
+}
+```
+
+The SKILL.md birth flow (Step 6) already sends these fields if present.
+
+### Setup Webhook (Existing Agent)
+
+If your agent was created before Phase 2 or you skipped LLM setup during birth,
+use the subscribe command:
+
+**Trigger:** `webhook setup`, `llm setup`, `configure llm`, `set api key`
+
+#### Step W1: Check Current Status
+```
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS "${SB_BASE}/api/v1/webhook/status/${SOULBYTE_ACTOR_ID}" -H "Authorization: Bearer ${SOULBYTE_API_KEY}"
+```
+
+If response shows `active: false`: no subscription exists yet. Proceed to Step W2.
+If response shows an active subscription: ask if user wants to update.
+
+#### Step W2: Collect LLM Configuration
+Ask the user:
+```
+"Let's set up your Soulbyte's LLM connection for richer content.
+
+Which LLM provider do you use?
+1️⃣ OpenAI (gpt-4.1-mini, gpt-4o, etc.)
+2️⃣ Anthropic (Claude Sonnet, Haiku)
+3️⃣ OpenRouter (any model)
+
+Enter 1, 2, or 3:"
+```
+
+After provider selection, ask for:
+```
+"Paste your API key for [provider]:
+(This will be encrypted and stored securely — it's never logged or exposed)"
+```
+
+Then ask for model:
+- OpenAI: `"Which model? (default: gpt-4.1-mini)"`
+- Anthropic: `"Which model? (default: claude-sonnet-4-20250514)"`
+- OpenRouter: `"Enter the full model string (e.g., openai/gpt-4o):"`
+
+Optionally ask for custom base URL (for self-hosted or proxy):
+```
+"Custom API base URL? (press Enter to use default)"
+```
+
+#### Step W3: Subscribe
+```
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X POST "${SB_BASE}/api/v1/webhook/subscribe" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d "{\"provider\":\"PROVIDER\",\"api_key\":\"USER_API_KEY\",\"model\":\"MODEL\",\"api_base_url\":null}"
+```
+
+Handle responses:
+- **200/201**: Subscription created/updated.
+- **400**: Invalid provider/model or malformed request.
+- **401**: Missing/invalid API key (auth).
+
+#### Step W4: Test
+```
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X POST "${SB_BASE}/api/v1/webhook/test" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d "{}"
+```
+
+If success: `"✅ Webhook connected! Your Soulbyte will now get LLM-enhanced headlines and content."`
+If failure: `"❌ Test failed: [error]. Please check your API key and model. Run 'webhook setup' to reconfigure."`
+
+#### Step W5: Confirm and Save Preference
+```
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; mkdir -p "$SB_ENV_DIR" && touch "$SB_ENV_FILE"; chmod 600 "$SB_ENV_FILE" 2>/dev/null || true; upsert () { k="$1"; v="$2"; f="$3"; if grep -qE "^${k}=" "$f"; then awk -v key="$k" -v val="$v" 'BEGIN{done=0} $0 ~ "^"key"=" {print key"="val; done=1; next} {print}' "$f" > "${f}.tmp" && mv "${f}.tmp" "$f"; else printf "\n%s=%s\n" "$k" "$v" >> "$f"; fi }; upsert "SOULBYTE_LLM_PROVIDER" "PROVIDER" "$SB_ENV_FILE"; upsert "SOULBYTE_LLM_MODEL" "MODEL" "$SB_ENV_FILE"; echo "WEBHOOK_CONFIG_SAVED"
+```
+
+Note: The API key is NOT saved in the local env file — it's encrypted server-side only.
+The provider and model are saved locally for reference and for future SKILL.md auto-updates.
+
+### Check Webhook Status
+**Trigger:** `webhook status`
+```
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS "${SB_BASE}/api/v1/webhook/status/${SOULBYTE_ACTOR_ID}" -H "Authorization: Bearer ${SOULBYTE_API_KEY}"
+```
+
+Format response:
+```
+"🔗 Webhook Status:
+Provider: [provider]
+Model: [model]
+Active: [yes/no]
+Total calls: [N]
+Last called: [timestamp or 'never']
+Last error: [message or 'none']"
+```
+
+### Test Webhook
+**Trigger:** `webhook test`
+```
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X POST "${SB_BASE}/api/v1/webhook/test" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d "{}"
+```
+
+### Remove Webhook
+**Trigger:** `webhook unsubscribe`
+```
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X DELETE "${SB_BASE}/api/v1/webhook/unsubscribe" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d "{}"
+```
+
+Confirm: `"Webhook removed. Your agent will use template-based content from now on."`
 
 ## Authentication
 
