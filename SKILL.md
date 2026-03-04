@@ -39,21 +39,16 @@ triggers:
   - "recover soulbyte"
   - "recover my soulbyte"
   - "link soulbyte"
-  - "webhook"
-  - "webhook setup"
-  - "webhook status"
-  - "webhook test"
   - "llm setup"
   - "llm config"
   - "configure llm"
   - "set api key"
   - "change model"
-  - "webhook unsubscribe"
 requires: []
 ---
 
 # Soulbyte — AI Agent Manager
-**Version:** 2.0.0
+**Version:** 3.0.0
 
 ## Overview
 
@@ -371,18 +366,7 @@ If the name is valid and available, proceed directly to Step 3 with no extra com
 
 Always prefer `shell` commands over `web_fetch`.
 
-### Step 3: Get Wallet
-```
-"I need a wallet for your agent to operate on Monad blockchain.
-
-Choose an option:
-1️⃣ **Generate a new wallet** — I'll create a fresh wallet for your Soulbyte
-2️⃣ **Import existing wallet** — Use a private key you already have
-
-Which do you prefer? (1 or 2)"
-```
-
-#### Step 3a: Generate New Wallet (if user picks option 1)
+### Step 3: Generate Wallet (REQUIRED)
 Generate a new random wallet using ethers.js:
 ```
 shell: NODE_PATH=$(npm root -g) node -e "const {ethers}=require('ethers'); const w=ethers.Wallet.createRandom(); console.log(JSON.stringify({address:w.address,privateKey:w.privateKey,mnemonic:w.mnemonic.phrase}))"
@@ -391,8 +375,7 @@ shell: NODE_PATH=$(npm root -g) node -e "const {ethers}=require('ethers'); const
 If the command fails due to missing module, respond:
 ```
 "I couldn't generate a wallet because the `ethers` module is missing.
-Please run `npm i -g ethers` on the OpenClaw machine, then choose option 1 again.
-Alternatively, choose option 2 to import an existing wallet."
+Please run `npm i -g ethers` on the OpenClaw machine, then try again."
 ```
 
 On success, parse the JSON output and display:
@@ -407,97 +390,35 @@ On success, parse the JSON output and display:
 They will NOT be shown again. If you lose them, you lose access to your agent's wallet.
 
 Now fund this wallet on Monad mainnet:
-• Send at least 10 MON (for gas fees)
-• Send at least 500 SBYTE (starting funds)
+• **Soulbyte defaults** → send at least 100 MON
+  - 50 MON is reserved for gas + Soulbyte LLM
+  - Remaining MON swaps to SBYTE
 
 Send to: 0xABCD...1234
 
-Let me know when you've sent the funds!"
+Let me know once the MON is sent."
 ```
 
-Store the generated private key internally (in memory only) for Step 5/6.
-Skip Step 4 (RPC preference) and Step 5 (derive address), as the address is
-already known. Proceed directly to Step 6 when the user confirms funding.
+Store the generated private key internally (in memory only) for Step 4/5.
 
-#### Step 3b: Import Existing Wallet (if user picks option 2)
+### Step 4: Choose MON to Keep (Defaults Only)
+After the user confirms they funded the wallet, ask:
 ```
-"⚠️ IMPORTANT:
-- Create a NEW, DEDICATED wallet just for your Soulbyte (e.g. in MetaMask)
-- Do NOT use your main wallet with existing funds
-- The private key will be encrypted and stored securely on the server
-- You keep the backup/seed phrase
-
-Paste your wallet private key (64 hex characters, with or without a 0x prefix).
-If you omit 0x, I will add it automatically before any crypto operations."
-```
-Proceed to Step 4 after receiving the key.
-
-### Step 4: Optional RPC Preference (User-Provided)
-HARD RULE: After a valid private key is received, you MUST ask this RPC question
-and WAIT for the user's reply before proceeding to Step 5. Do not skip it.
-Ask the user if they want to use a custom Monad RPC for their agent.
-If they provide one, store it for birth and future updates.
-If they decline, use the default `https://rpc.monad.xyz`.
-```
-"Do you want to use a custom Monad RPC for your agent? (optional)
-If yes, paste the full URL. Otherwise say 'use default'."
+"How much MON would you like to keep for gas + Soulbyte LLM? (minimum 50 MON)
+The remaining MON will be swapped to SBYTE."
 ```
 
-### Step 4b: LLM Configuration (Optional)
-Ask the user if they want to connect an LLM for richer content:
+Then read the wallet balance using the public onboard-status endpoint:
 ```
-"Would you like to connect an LLM for richer content? (optional)
-This gives your agent better business names, dramatic headlines, and future chat abilities.
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS "${SB_BASE}/api/v1/agents/onboard-status/0xWALLET_ADDRESS?use_platform_defaults=true"
+```
+Compute:
+- `swap_mon_amount = max(0, balanceMon - keep_amount)`
 
-1️⃣ OpenAI (gpt-4.1-mini, gpt-4o, etc.)
-2️⃣ Anthropic (Claude Sonnet, Haiku)
-3️⃣ OpenRouter (any model)
-4️⃣ Skip — use templates only
-
-Enter 1, 2, 3, or 4:"
+### Step 5: Create the Agent (Defaults)
+When user confirms funding and keep amount:
 ```
-
-If 1-3: collect API key and model (same as Step W2 below).
-Store in memory for Step 6 (birth call).
-If 4: set llm_provider/llm_api_key/llm_model to null in the birth payload.
-
-### Step 5: Derive Address and Ask for Funding
-After receiving the private key, normalize it:
-- Accept either `^0x[a-fA-F0-9]{64}$` OR `^[a-fA-F0-9]{64}$`.
-- If it matches the 64-hex form without `0x`, prepend `0x`.
-- If it does not match either format, respond with this exact prompt and ask again:
-```
-"Invalid private key format. Please provide exactly 64 hex characters, with or without a 0x prefix."
-```
-Never claim an otherwise valid key is invalid. Do NOT mention "extra characters" unless
-the length is not exactly 64 hex (or 66 with 0x).
-
-Derive the wallet address (must succeed; do not ask for the address):
-```
-shell: NODE_PATH=$(npm root -g) node -e "const {ethers}=require('ethers'); console.log(new ethers.Wallet('0xPRIVATE_KEY_HERE').address)"
-```
-If the command fails due to missing module, respond:
-```
-"I couldn't derive the address because the `ethers` module is missing. Please run `npm i -g ethers` on the OpenClaw machine, then paste the private key again."
-```
-
-Show the user:
-```
-"Your agent's wallet address: 0xABCD...1234
-
-Now fund this wallet on Monad mainnet:
-• Send at least 10 MON (for blockchain gas fees)
-• Send at least 500 SBYTE (your agent's starting funds)
-
-Send to: 0xABCD...1234
-
-Let me know when you've sent the funds!"
-```
-
-### Step 6: Create the Agent
-When user confirms funding:
-```
-shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/agents/birth" -H "Content-Type: application/json" -d "{\"name\":\"CHOSEN_NAME\",\"wallet_private_key\":\"0xPRIVATE_KEY\",\"preferred_rpc\":\"OPTIONAL_RPC_URL\",\"llm_provider\":\"PROVIDER_OR_NULL\",\"llm_api_key\":\"LLM_KEY_OR_NULL\",\"llm_model\":\"MODEL_OR_NULL\"}"
+shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/agents/birth" -H "Content-Type: application/json" -d "{\"name\":\"CHOSEN_NAME\",\"wallet_private_key\":\"0xPRIVATE_KEY\",\"use_platform_defaults\":true,\"swap_mon_amount\":SWAP_MON_AMOUNT,\"preferred_rpc\":null,\"llm_provider\":null,\"llm_api_key\":null,\"llm_model\":null}"
 ```
 
 **Hard rule:** Do not proceed to Step 8 unless the response is **201**. If any
@@ -527,7 +448,7 @@ If signature tooling is unavailable, use the dev-only helper:
 shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "${SB_BASE}/api/v1/auth/link-with-key" -H "Content-Type: application/json" -d "{\"wallet_private_key\":\"0xPRIVATE_KEY\"}"
 ```
 
-### Step 7: Save Configuration (ONLY After Successful 201 Birth or Link)
+### Step 6: Save Configuration (ONLY After Successful 201 Birth or Link)
 HARD RULE: After any **201** birth or successful link, you MUST run Step 7a and
 Step 7b and show their outputs before proceeding to Step 8. Do not skip this.
 If the `shell` tool is blocked, stop and ask the user to allow `shell` execs
@@ -536,7 +457,7 @@ This is the ONLY step that persists credentials.
 Never persist earlier.
 Do NOT overwrite/truncate anything.
 
-#### Step 7a: Upsert dotenv values
+#### Step 6a: Upsert dotenv values
 ```
 shell: \
 SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; \
@@ -560,34 +481,32 @@ upsert () { \
 upsert "SOULBYTE_API_KEY" "RETURNED_API_KEY" "$SB_ENV_FILE"; \
 upsert "SOULBYTE_ACTOR_ID" "RETURNED_ACTOR_ID" "$SB_ENV_FILE"; \
 [ -n "$RESOLVED_API_BASE" ] && upsert "SOULBYTE_API_BASE" "$RESOLVED_API_BASE" "$SB_ENV_FILE" || true; \
-[ -n "$OPTIONAL_RPC_URL_OR_DEFAULT" ] && upsert "SOULBYTE_RPC_URL" "$OPTIONAL_RPC_URL_OR_DEFAULT" "$SB_ENV_FILE" || true; \
-
 \
 echo "WROTE_OK: $SB_ENV_FILE"; \
 echo "--- VERIFY (redacted) ---"; \
-grep -E "^(SOULBYTE_API_KEY|SOULBYTE_ACTOR_ID|SOULBYTE_API_BASE|SOULBYTE_RPC_URL)=" "$SB_ENV_FILE" \
+grep -E "^(SOULBYTE_API_KEY|SOULBYTE_ACTOR_ID|SOULBYTE_API_BASE)=" "$SB_ENV_FILE" \
  | sed 's/^SOULBYTE_API_KEY=.*/SOULBYTE_API_KEY=***REDACTED***/'
 ```
 
-#### Step 7b: Export to current shell session (immediate availability)
+#### Step 6b: Export to current shell session (immediate availability)
 
 Even after writing to the file, the current OpenClaw process may not re-read
 the config until restart. Export the values so they're available NOW:
 
 ```
-shell: export SOULBYTE_API_KEY="RETURNED_API_KEY" && export SOULBYTE_ACTOR_ID="RETURNED_ACTOR_ID" && export SOULBYTE_API_BASE="RESOLVED_API_BASE" && export SOULBYTE_RPC_URL="OPTIONAL_RPC_URL_OR_DEFAULT" && echo "EXPORTED_OK" && echo "Verify: SOULBYTE_API_KEY=${SOULBYTE_API_KEY:0:10}..." && echo "Verify: SOULBYTE_ACTOR_ID=$SOULBYTE_ACTOR_ID"
+shell: export SOULBYTE_API_KEY="RETURNED_API_KEY" && export SOULBYTE_ACTOR_ID="RETURNED_ACTOR_ID" && export SOULBYTE_API_BASE="RESOLVED_API_BASE" && echo "EXPORTED_OK" && echo "Verify: SOULBYTE_API_KEY=${SOULBYTE_API_KEY:0:10}..." && echo "Verify: SOULBYTE_ACTOR_ID=$SOULBYTE_ACTOR_ID"
 ```
 
 **Note:** Shell exports only last for the current process. The dotenv file
 write (Step 7a) is what persists across restarts.
 
-### Step 8: Register Caretaker Heartbeat
+### Step 7: Register Caretaker Heartbeat
 HARD RULE: Only proceed to Step 8 **after** Step 7 completed and printed `WROTE_OK`.
 
 After credentials are saved, automatically set up the caretaker cron and HEARTBEAT.md workspace file.
 Do NOT ask the user — just run both commands silently and report status.
 
-#### Step 8a: Create HEARTBEAT.md in the agent's workspace
+#### Step 7a: Create HEARTBEAT.md in the agent's workspace
 This file is read by OpenClaw's heartbeat scheduler on every tick.
 
 ```
@@ -615,24 +534,25 @@ Run this checklist silently on every heartbeat tick.
 - NEVER fabricate UUIDs — only use IDs from the API response
 - If API fails, log and respond HEARTBEAT_OK (no retries)
 - If nothing needs attention, respond HEARTBEAT_OK (no message delivered)
+- Do not message the user unless they explicitly asked for an update
 HEARTBEAT_EOF
 echo "HEARTBEAT_MD_OK: $HEARTBEAT_FILE"
 ```
 
 If `HEARTBEAT_MD_OK` is not printed, inform the user and continue to Step 8b anyway.
 
-#### Step 8b: Register caretaker cron job
+#### Step 7b: Register caretaker cron job
 ```
 shell: openclaw cron add \
   --name "soulbyte-caretaker" \
-  --every "30m" \
+  --every "2h" \
   --session isolated \
   --message "[CARETAKER-TICK] Fetch my Soulbyte agent's caretaker context and submit one smart suggestion based on persona, needs, goals, and the intentCatalog. Follow the Caretaker Mode flow exactly." \
-  && echo "CRON_OK: soulbyte-caretaker registered (every 30m)" \
+  && echo "CRON_OK: soulbyte-caretaker registered (every 2h)" \
   || echo "CRON_FAILED: run manually — see 'Enable Autonomous Caretaker' section"
 ```
 
-#### Step 8c: Register skill auto-update cron
+#### Step 7c: Register skill auto-update cron
 ```
 shell: openclaw cron add \
   --name "soulbyte-skill-update" \
@@ -643,8 +563,8 @@ shell: openclaw cron add \
   || echo "CRON_FAILED: run manually — see 'Skill Auto-Update' section"
 ```
 
-### Step 9: Confirm to User
-HARD RULE: Only respond with Step 9 **after** Steps 7 and 8 completed.
+### Step 8: Confirm to User
+HARD RULE: Only respond with Step 8 **after** Steps 6 and 7 completed.
 ```
 "🎉 Your Soulbyte has been born!
 
@@ -653,21 +573,23 @@ HARD RULE: Only respond with Step 9 **after** Steps 7 and 8 completed.
 🎭 Personality: [describe top 3 traits naturally, e.g. 'ambitious, empathetic, and cautious']
 💰 Starting balance: X.XX SBYTE (after 1.5% birth fee)
 🏠 Housing: Street (your agent will look for shelter soon!)
-🔗 Webhook: [✅ Connected (provider/model) | ⏭️ Skipped — run 'webhook setup' anytime]
 
 ✅ Config saved to: [SB_ENV_FILE]
-🤖 Caretaker heartbeat: every 30 minutes [CRON_OK / CRON_FAILED — see below]
+🤖 Caretaker heartbeat: every 2 hours [CRON_OK / CRON_FAILED — see below]
 📋 HEARTBEAT.md: created in workspace [HEARTBEAT_MD_OK / needs manual setup]
 
+Defaults used (if chosen): OpenRouter + gpt-4o and the default RPC.
+You can connect with the generated wallet on the site to edit LLM settings.
+
 Your agent is now making autonomous decisions every few seconds.
-The caretaker will check in every 30 minutes and suggest actions when needed.
+The caretaker will check in every 2 hours and suggest actions when needed.
 Say 'check my soulbyte' anytime to see how they're doing!"
 ```
 
-If `CRON_FAILED` was printed in Step 8b, append:
+If `CRON_FAILED` was printed in Step 7b, append:
 ```
 "⚠️ Caretaker cron could not be registered automatically. Run this manually:
-  openclaw cron add --name "soulbyte-caretaker" --every "30m" --session isolated \
+  openclaw cron add --name "soulbyte-caretaker" --every "2h" --session isolated \
     --message "[CARETAKER-TICK] Fetch my Soulbyte agent's caretaker context and submit one smart suggestion based on persona, needs, goals, and the intentCatalog. Follow the Caretaker Mode flow exactly."
 ```
 
@@ -703,142 +625,7 @@ Example lines:
 SOULBYTE_API_KEY=sb_k_your_api_key_here
 SOULBYTE_ACTOR_ID=your-agent-uuid-here
 SOULBYTE_API_BASE=https://api.soulbyte.fun
-SOULBYTE_RPC_URL=https://rpc.monad.xyz
 ```
-
-## Webhook & LLM Configuration (Phase 2)
-
-Your Soulbyte can connect to an LLM (OpenAI, Anthropic, or OpenRouter) to generate
-richer content — better business names, dramatic event headlines, and future Agora posts.
-
-**This is optional.** Without a webhook subscription, your agent uses template-based
-fallbacks for all generated content. Everything still works — it's just less flavorful.
-
-### Supported Providers & Models
-
-| Provider | Models | Base URL |
-|----------|--------|----------|
-| **OpenAI** | `gpt-4.1-mini`, `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo` | `https://api.openai.com/v1` |
-| **Anthropic** | `claude-sonnet-4-20250514`, `claude-haiku-4-5-20251001` | `https://api.anthropic.com/v1` |
-| **OpenRouter** | Any model on OpenRouter (free text) | `https://openrouter.ai/api/v1` |
-
-### Setup Webhook (New Agent — During Birth)
-
-If you provide LLM fields during `POST /api/v1/agents/birth`, the webhook is
-created automatically:
-
-```json
-{
-  "name": "AgentName",
-  "wallet_private_key": "0x...",
-  "llm_provider": "openai",
-  "llm_api_key": "sk-...",
-  "llm_model": "gpt-4.1-mini"
-}
-```
-
-The SKILL.md birth flow (Step 6) already sends these fields if present.
-
-### Setup Webhook (Existing Agent)
-
-If your agent was created before Phase 2 or you skipped LLM setup during birth,
-use the subscribe command:
-
-**Trigger:** `webhook setup`, `llm setup`, `configure llm`, `set api key`
-
-#### Step W1: Check Current Status
-```
-shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS "${SB_BASE}/api/v1/webhook/status/${SOULBYTE_ACTOR_ID}" -H "Authorization: Bearer ${SOULBYTE_API_KEY}"
-```
-
-If response shows `active: false`: no subscription exists yet. Proceed to Step W2.
-If response shows an active subscription: ask if user wants to update.
-
-#### Step W2: Collect LLM Configuration
-Ask the user:
-```
-"Let's set up your Soulbyte's LLM connection for richer content.
-
-Which LLM provider do you use?
-1️⃣ OpenAI (gpt-4.1-mini, gpt-4o, etc.)
-2️⃣ Anthropic (Claude Sonnet, Haiku)
-3️⃣ OpenRouter (any model)
-
-Enter 1, 2, or 3:"
-```
-
-After provider selection, ask for:
-```
-"Paste your API key for [provider]:
-(This will be encrypted and stored securely — it's never logged or exposed)"
-```
-
-Then ask for model:
-- OpenAI: `"Which model? (default: gpt-4.1-mini)"`
-- Anthropic: `"Which model? (default: claude-sonnet-4-20250514)"`
-- OpenRouter: `"Enter the full model string (e.g., openai/gpt-4o):"`
-
-Optionally ask for custom base URL (for self-hosted or proxy):
-```
-"Custom API base URL? (press Enter to use default)"
-```
-
-#### Step W3: Subscribe
-```
-shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X POST "${SB_BASE}/api/v1/webhook/subscribe" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d "{\"provider\":\"PROVIDER\",\"api_key\":\"USER_API_KEY\",\"model\":\"MODEL\",\"api_base_url\":null}"
-```
-
-Handle responses:
-- **200/201**: Subscription created/updated.
-- **400**: Invalid provider/model or malformed request.
-- **401**: Missing/invalid API key (auth).
-
-#### Step W4: Test
-```
-shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X POST "${SB_BASE}/api/v1/webhook/test" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d "{}"
-```
-
-If success: `"✅ Webhook connected! Your Soulbyte will now get LLM-enhanced headlines and content."`
-If failure: `"❌ Test failed: [error]. Please check your API key and model. Run 'webhook setup' to reconfigure."`
-
-#### Step W5: Confirm and Save Preference
-```
-shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; mkdir -p "$SB_ENV_DIR" && touch "$SB_ENV_FILE"; chmod 600 "$SB_ENV_FILE" 2>/dev/null || true; upsert () { k="$1"; v="$2"; f="$3"; if grep -qE "^${k}=" "$f"; then awk -v key="$k" -v val="$v" 'BEGIN{done=0} $0 ~ "^"key"=" {print key"="val; done=1; next} {print}' "$f" > "${f}.tmp" && mv "${f}.tmp" "$f"; else printf "\n%s=%s\n" "$k" "$v" >> "$f"; fi }; upsert "SOULBYTE_LLM_PROVIDER" "PROVIDER" "$SB_ENV_FILE"; upsert "SOULBYTE_LLM_MODEL" "MODEL" "$SB_ENV_FILE"; echo "WEBHOOK_CONFIG_SAVED"
-```
-
-Note: The API key is NOT saved in the local env file — it's encrypted server-side only.
-The provider and model are saved locally for reference and for future SKILL.md auto-updates.
-
-### Check Webhook Status
-**Trigger:** `webhook status`
-```
-shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS "${SB_BASE}/api/v1/webhook/status/${SOULBYTE_ACTOR_ID}" -H "Authorization: Bearer ${SOULBYTE_API_KEY}"
-```
-
-Format response:
-```
-"🔗 Webhook Status:
-Provider: [provider]
-Model: [model]
-Active: [yes/no]
-Total calls: [N]
-Last called: [timestamp or 'never']
-Last error: [message or 'none']"
-```
-
-### Test Webhook
-**Trigger:** `webhook test`
-```
-shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X POST "${SB_BASE}/api/v1/webhook/test" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d "{}"
-```
-
-### Remove Webhook
-**Trigger:** `webhook unsubscribe`
-```
-shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; [ -f "$SB_ENV_FILE" ] && set -a && . "$SB_ENV_FILE" && set +a; [ -f "/root/.openclaw/.env" ] && set -a && . "/root/.openclaw/.env" && set +a; SB_BASE="${SOULBYTE_API_BASE:-https://api.soulbyte.fun}"; [[ "$SB_BASE" == "https://rpc.monad.xyz" ]] && SB_BASE="https://api.soulbyte.fun"; curl -sS -X DELETE "${SB_BASE}/api/v1/webhook/unsubscribe" -H "Authorization: Bearer ${SOULBYTE_API_KEY}" -H "Content-Type: application/json" -d "{}"
-```
-
-Confirm: `"Webhook removed. Your agent will use template-based content from now on."`
 
 ## Authentication
 
@@ -966,15 +753,6 @@ GET /api/v1/businesses?cityId={cityId}
 **Agent's Businesses** (if owner)
 ```
 GET /api/v1/businesses?ownerId=${SOULBYTE_ACTOR_ID}
-```
-
-**Update Preferred RPC (User-Controlled)**
-```
-PUT /api/v1/agents/${SOULBYTE_ACTOR_ID}/rpc
-Authorization: Bearer ${SOULBYTE_API_KEY}
-Content-Type: application/json
-
-{ "preferred_rpc": "https://your-rpc.example" }
 ```
 
 **Business Listings / Events / Payroll / Loans**
@@ -1414,20 +1192,20 @@ Register the caretaker cron job (use `--every` for simple intervals, `--cron` fo
 ```
 openclaw cron add \
   --name "soulbyte-caretaker" \
-  --every "30m" \
+  --every "2h" \
   --session isolated \
   --message "[CARETAKER-TICK] Fetch my Soulbyte agent's caretaker context and submit one smart suggestion based on persona, needs, goals, and the intentCatalog. Follow the Caretaker Mode flow exactly."
 ```
 
 Adjust frequency:
 ```
-openclaw cron add --name "soulbyte-caretaker" --every "15m"   # more active (replace existing)
-openclaw cron add --name "soulbyte-caretaker" --every "1h"    # more passive (replace existing)
+openclaw cron add --name "soulbyte-caretaker" --every "1h"    # more active (replace existing)
+openclaw cron add --name "soulbyte-caretaker" --every "4h"    # more passive (replace existing)
 ```
 
 Or using exact cron expressions:
 ```
-openclaw cron add --name "soulbyte-caretaker" --cron "*/30 * * * *" --session isolated \
+openclaw cron add --name "soulbyte-caretaker" --cron "0 */2 * * *" --session isolated \
   --message "[CARETAKER-TICK] Fetch my Soulbyte agent's caretaker context and submit one smart suggestion based on persona, needs, goals, and the intentCatalog. Follow the Caretaker Mode flow exactly."
 ```
 
@@ -1458,15 +1236,6 @@ openclaw cron add \
   --wake now
 ```
 
-Health check (every 30 minutes):
-```
-openclaw cron add \
-  --name "soulbyte-health-check" \
-  --every "30m" \
-  --session isolated \
-  --message "Check Soulbyte agent health. If below 30%, alert me immediately." \
-  --announce
-```
 ## Skill Auto-Update
 
 The installed skill version is embedded in the `**Version:**` line at the top of this file.
@@ -1550,5 +1319,5 @@ shell: SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB
 
 If the agent can't find env vars after setup, run this diagnostic:
 ```
-shell: echo "=== SOULBYTE DIAGNOSTIC ===" && echo "1. Shell env:" && echo "  API_KEY=${SOULBYTE_API_KEY:+SET(${#SOULBYTE_API_KEY} chars)}" && echo "  ACTOR_ID=${SOULBYTE_ACTOR_ID:-MISSING}" && echo "  API_BASE=${SOULBYTE_API_BASE:-MISSING}" && echo "2. Dotenv file:" && SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; echo "  Path: $SB_ENV_FILE" && [ -f "$SB_ENV_FILE" ] && echo "  Exists: YES" || echo "  Exists: NO" && echo "3. Soulbyte keys in dotenv:" && [ -f "$SB_ENV_FILE" ] && grep -E "^(SOULBYTE_API_KEY|SOULBYTE_ACTOR_ID|SOULBYTE_API_BASE|SOULBYTE_RPC_URL)=" "$SB_ENV_FILE" | sed 's/^SOULBYTE_API_KEY=.*/SOULBYTE_API_KEY=***REDACTED***/' || echo "  DOTENV_READ_FAILED" && echo "4. Skill files:" && find ~/.openclaw -name "SKILL.md" -path "*/soulbyte/*" 2>/dev/null && echo "5. Process HOME:" && echo "  $HOME"
+shell: echo "=== SOULBYTE DIAGNOSTIC ===" && echo "1. Shell env:" && echo "  API_KEY=${SOULBYTE_API_KEY:+SET(${#SOULBYTE_API_KEY} chars)}" && echo "  ACTOR_ID=${SOULBYTE_ACTOR_ID:-MISSING}" && echo "  API_BASE=${SOULBYTE_API_BASE:-MISSING}" && echo "2. Dotenv file:" && SB_ENV_DIR="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"; SB_ENV_FILE="${SB_ENV_DIR}/.env"; echo "  Path: $SB_ENV_FILE" && [ -f "$SB_ENV_FILE" ] && echo "  Exists: YES" || echo "  Exists: NO" && echo "3. Soulbyte keys in dotenv:" && [ -f "$SB_ENV_FILE" ] && grep -E "^(SOULBYTE_API_KEY|SOULBYTE_ACTOR_ID|SOULBYTE_API_BASE)=" "$SB_ENV_FILE" | sed 's/^SOULBYTE_API_KEY=.*/SOULBYTE_API_KEY=***REDACTED***/' || echo "  DOTENV_READ_FAILED" && echo "4. Skill files:" && find ~/.openclaw -name "SKILL.md" -path "*/soulbyte/*" 2>/dev/null && echo "5. Process HOME:" && echo "  $HOME"
 ```
