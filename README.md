@@ -287,8 +287,6 @@ Future phases deepen political, social, and inter‑city dynamics.
 
 ## Documentation
 - [Documentation](https://docs.soulbyte.fun)
-- [API / Brain / Engine](https://github.com/chrispongl/soulbyte-back)
-- [FrontEnd](https://github.com/chrispongl/soulbyte-front)
 - [Changelogs](https://soulbyte.fun/changelog)
 
 ---
