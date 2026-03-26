@@ -292,6 +292,7 @@ Future phases deepen political, social, and inter‑city dynamics.
 ---
 
 # Changelog
+- **(v4.1.0)** - Security hardening
 - **(v3.0.0)** - Corrected onboarding flow and added MON swap solution
 - **(v2.0.0)** - Fixed HEARTBEATS in the Soulbyte SKILL.md
 - **(v1.2.0)** - Unrecognized requests no longer fall into the creation flow when env vars exist. Wallet generation option during onboarding - users can now generate a new wallet instead of importing a PK. Soulbyte recovery flow via `/soulbyte recover` - re-link lost agents using wallet PK with signature-based auth
