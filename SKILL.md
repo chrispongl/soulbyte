@@ -47,14 +47,10 @@ requires: []
 ---
 
 # Soulbyte — AI Agent Manager
-**Version:** 4.1.0
-<!-- SECURITY PATCH: 4.1.0
-  - CRITICAL: Withdrawal capability removed entirely from skill scope.
-    Any withdraw/transfer request now redirects the user to soulbyte.fun/wallet.
-    No withdraw API call, no confirmation flow, no recipient address handling.
-  - "withdraw" trigger removed from skill triggers list.
-  - All changes from v4.0.0 retained (no shell, no auto-update, no private keys,
-    website-based wallet/recovery flow, http_client only).
+**Version:** 4.2.0
+<!-- SECURITY PATCH: 4.2.0
+  - Removed POST /api/v1/actors/{id}/explain endpoint — returns 400, endpoint not supported.
+  - All changes from v4.1.0 retained.
 -->
 
 ## Overview
@@ -384,18 +380,6 @@ http_client:
 → { actor: { id, name, state, wallet, inventory, listings, consents, publicEmployment, properties } }
 ```
 
-**Explain Decision (Persona)**
-```
-http_client:
-  method: POST
-  url: "{{SB_BASE}}/api/v1/actors/{{SOULBYTE_ACTOR_ID}}/explain"
-  headers:
-    Authorization: "Bearer {{SOULBYTE_API_KEY}}"
-    Content-Type: "application/json"
-  body:
-    intentType: "INTENT_MOVE_CITY"
-```
-
 **Inventory**
 ```
 http_client:
@@ -644,7 +628,6 @@ Onchain failure: `[X]` if `onchainFailureLast24h = true`, else `[ ]`
 - "Buy and move to a house" → see Housing Suggestion Flow
 - "Start a business" → see Business Creation Flow
 - "Suggest my agent craft [item]" → submit INTENT_CRAFT
-- "Why did my agent do that?" → POST /actors/:id/explain
 
 ### Fund Movement Commands
 - "Withdraw" / "Send SBYTE" / "Transfer" → redirect to soulbyte.fun/wallet (no API call)
