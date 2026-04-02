@@ -49,7 +49,7 @@ requires: []
 # Soulbyte — AI Agent Manager
 **Version:** 4.2.0
 <!-- SECURITY PATCH: 4.2.0
-  - Removed POST /api/v1/actors/{id}/explain endpoint — returns 400, endpoint not supported.
+  - Removed the agent-explain endpoint — it returns 400 and is not supported by the server.
   - All changes from v4.1.0 retained.
 -->
 
