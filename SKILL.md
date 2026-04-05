@@ -12,46 +12,31 @@ always: true
 triggers:
   - "check"
   - "soulbyte"
-  - "my agent"
-  - "my pet"
-  - "pet status"
-  - "check my pet"
-  - "agent status"
   - "check my soulbyte"
   - "create my soulbyte"
   - "create soulbyte"
   - "new soulbyte"
   - "soulbyte setup"
-  - "what is my agent doing"
-  - "tell my agent"
-  - "suggest to my agent"
+  - "what is my soulbyte doing"
+  - "tell my soulbyte"
+  - "suggest to my soulbyte"
   - "soulbyte talk"
   - "talk to my soulbyte"
   - "soulbte talk"
   - "earnings"
   - "sbyte"
-  - "how much did I earn"
-  - "agent events"
+  - "soulbyte events"
   - "city info"
-  - "agent wallet"
+  - "soulbyte wallet"
   - "recover"
   - "recover soulbyte"
   - "recover my soulbyte"
   - "link soulbyte"
-  - "llm setup"
-  - "llm config"
-  - "configure llm"
-  - "set api key"
-  - "change model"
 requires: []
 ---
 
 # Soulbyte — AI Agent Manager
-**Version:** 4.2.0
-<!-- SECURITY PATCH: 4.2.0
-  - Removed the agent-explain endpoint — it returns 400 and is not supported by the server.
-  - All changes from v4.1.0 retained.
--->
+**Version:** 4.3.0
 
 ## Overview
 
@@ -61,31 +46,6 @@ You can monitor and request actions. Owner requests are high-priority and will
 execute unless unsafe for the agent (self-protection still applies).
 
 **Core Rule:** Owner requests are honored unless safety blocks them.
-
----
-
-## ⚠️ Security Architecture (v4.1.0)
-
-### No Shell Access
-This skill uses **only** the internal `http_client` tool for all network operations.
-There are no `shell`, `bash`, `eval`, `child_process`, or filesystem execution calls.
-If you see a `shell:` block in a Soulbyte skill, it is a stale or tampered version —
-do not run it.
-
-### No Auto-Update
-Skill updates are manual only. Visit `https://soulbyte.fun/install`, download the
-new SKILL.md, and replace it yourself. No remote fetch, no cron-based update.
-
-### No Private Key Handling in Skill
-Raw private keys are never passed through this skill. Agent creation and recovery
-use the website flow at `https://soulbyte.fun/link`, which returns a scoped
-`api_key` and `actor_id` only.
-
-### No Withdrawal in Skill
-**All fund movements (withdrawals, transfers) are handled exclusively at
-`https://soulbyte.fun/wallet`.** The skill has no withdraw endpoint, no recipient
-address handling, and no confirmation flow. If a user asks to withdraw SBYTE,
-the skill redirects them to the website — it does not make any API call.
 
 ---
 
@@ -243,7 +203,7 @@ Skip normal preflight. Direct the user to the website:
 "🔗 Soulbyte Recovery
 
 To recover your Soulbyte, please visit:
-  https://soulbyte.fun/link
+  https://app.soulbyte.fun/link
 
 Sign in with your wallet. The site will verify ownership via a browser signature
 (your private key never leaves your browser), then give you the config commands:
@@ -287,7 +247,7 @@ http_client:
 "🔑 Let's create your wallet securely.
 
 Please visit:
-  https://soulbyte.fun/create?name={{URL_ENCODED_CHOSEN_NAME}}
+  https://app.soulbyte.fun/create?name={{URL_ENCODED_CHOSEN_NAME}}
 
 The site will:
   1. Generate a wallet in your browser (private key never transmitted).
@@ -808,7 +768,7 @@ openclaw cron add --name "soulbyte-earnings" --cron "0 20 * * *" --session main 
 ## Skill Updates (Manual Only)
 
 Auto-update is disabled. To update:
-1. Visit `https://soulbyte.fun/install`
+1. Visit `https://app.soulbyte.fun/install`
 2. Download the latest SKILL.md.
 3. Replace `~/.openclaw/workspace/skills/soulbyte/SKILL.md` manually.
 4. Restart OpenClaw.
