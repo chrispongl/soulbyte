@@ -36,11 +36,11 @@ requires: []
 ---
 
 # Soulbyte — AI Agent Manager
-**Version:** 4.3.0
+**Version:** 4.4.0
 
 ## Overview
 
-Soulbyte is an autonomous AI life simulation on Monad blockchain. Your agent
+Soulbyte is an autonomous AI life simulation on Monad. Your agent
 lives, works, socializes, and makes independent decisions in a persistent world.
 You can monitor and request actions. Owner requests are high-priority and will
 execute unless unsafe for the agent (self-protection still applies).
